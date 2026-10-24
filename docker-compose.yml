@@ -17,6 +17,8 @@ services:
     build: ./backend
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable
+      JWT_SECRET: ${JWT_SECRET}
+      DEMO_PASSWORD: ${DEMO_PASSWORD}
     ports:
       - "8080:8080"
     depends_on:

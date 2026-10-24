@@ -10,14 +10,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/auth"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/config"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/database"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/httpapi"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
 )
 
 const (
 	readHeaderTimeout = 5 * time.Second
 	shutdownTimeout   = 10 * time.Second
+	seedTimeout       = 30 * time.Second
 )
 
 func main() {
@@ -36,6 +39,11 @@ func run() error {
 		return err
 	}
 
+	tokens, err := auth.NewTokenManager(cfg.JWTSecret, cfg.AccessTTL, cfg.RefreshTTL)
+	if err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
@@ -49,8 +57,24 @@ func run() error {
 	}
 	defer pool.Close()
 
+	users := user.NewRepository(pool)
+
+	seedCtx, cancelSeed := context.WithTimeout(ctx, seedTimeout)
+	created, err := user.SeedDemoUsers(seedCtx, users, auth.HashPassword, cfg.DemoPassword)
+	cancelSeed()
+	if err != nil {
+		return err
+	}
+	slog.Info("demo hesaplar hazır", "eklenen", created)
+
+	authService, err := auth.NewService(users, tokens)
+	if err != nil {
+		return err
+	}
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", httpapi.HealthHandler(pool))
+	mux.HandleFunc("POST /auth/login", httpapi.LoginHandler(authService))
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
