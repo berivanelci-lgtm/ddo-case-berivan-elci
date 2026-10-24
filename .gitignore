@@ -1,0 +1,14 @@
+# Gizli ayarlar
+.env
+
+# Derleme çıktıları
+bin/
+*.exe
+
+# Frontend bağımlılıkları
+node_modules/
+
+# Editör ve sistem dosyaları
+.vscode/
+.DS_Store
+Thumbs.db
