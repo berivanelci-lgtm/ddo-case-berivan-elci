@@ -3,4 +3,4 @@
 **Hazırlayan:** Berivan Elçi
 
 Bu depo, DDO Dijital Dönüşüm Ofisi teknik değerlendirmesi için hazırlanmaktadır.
-Proje geliştirme aşamasındadır, README ilerledikçe tamamlanacaktır."
+Proje geliştirme aşamasındadır, README ilerledikçe tamamlanacaktır.
