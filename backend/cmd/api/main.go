@@ -75,6 +75,8 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", httpapi.HealthHandler(pool))
 	mux.HandleFunc("POST /auth/login", httpapi.LoginHandler(authService))
+		authenticate := httpapi.Authenticate(tokens)
+	mux.Handle("GET /me", authenticate(httpapi.MeHandler()))
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
