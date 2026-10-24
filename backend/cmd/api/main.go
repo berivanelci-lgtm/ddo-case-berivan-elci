@@ -1,26 +1,80 @@
 package main
 
 import (
-	"encoding/json"
-	"log"
+	"context"
+	"errors"
+	"log/slog"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/config"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/database"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/httpapi"
 )
 
-// healthResponse, /health ucunun döndüğü JSON yapısıdır.
-type healthResponse struct {
-	Status string `json:"status"`
-}
-
-// healthHandler, servisin ayakta olduğunu bildirir.
-func healthHandler(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(healthResponse{Status: "ok"})
-}
+const (
+	readHeaderTimeout = 5 * time.Second
+	shutdownTimeout   = 10 * time.Second
+)
 
 func main() {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", healthHandler)
+	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)))
 
-	log.Println("API :8080 portunda dinliyor")
-	log.Fatal(http.ListenAndServe(":8080", mux))
+	if err := run(); err != nil {
+		slog.Error("uygulama durdu", "error", err)
+		os.Exit(1)
+	}
+}
+
+// run, uygulamayı başlatır ve kapanış sinyaline kadar çalıştırır.
+func run() error {
+	cfg, err := config.Load()
+	if err != nil {
+		return err
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := database.Migrate(cfg.DatabaseURL); err != nil {
+		return err
+	}
+
+	pool, err := database.Connect(ctx, cfg.DatabaseURL)
+	if err != nil {
+		return err
+	}
+	defer pool.Close()
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /health", httpapi.HealthHandler(pool))
+
+	server := &http.Server{
+		Addr:              cfg.HTTPAddr,
+		Handler:           mux,
+		ReadHeaderTimeout: readHeaderTimeout,
+	}
+
+	serverErr := make(chan error, 1)
+	go func() {
+		slog.Info("API dinliyor", "addr", cfg.HTTPAddr)
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			serverErr <- err
+		}
+	}()
+
+	select {
+	case err := <-serverErr:
+		return err
+	case <-ctx.Done():
+		slog.Info("kapanış sinyali alındı")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	return server.Shutdown(shutdownCtx)
 }
