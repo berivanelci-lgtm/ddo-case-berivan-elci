@@ -18,6 +18,7 @@ import (
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spcstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/userstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/workorder"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/workorderstore"
 )
@@ -62,7 +63,7 @@ func run() error {
 	}
 	defer pool.Close()
 
-	users := user.NewRepository(pool)
+	users := userstore.New(pool)
 
 	seedCtx, cancelSeed := context.WithTimeout(ctx, seedTimeout)
 	created, err := user.SeedDemoUsers(seedCtx, users, auth.HashPassword, cfg.DemoPassword)

@@ -1,6 +1,12 @@
 package user
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+// ErrNotFound, aranan kullanıcı bulunamadığında döner.
+var ErrNotFound = errors.New("kullanıcı bulunamadı")
 
 // User, veritabanındaki bir kullanıcı kaydını temsil eder.
 type User struct {
