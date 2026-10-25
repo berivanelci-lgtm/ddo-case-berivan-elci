@@ -40,6 +40,35 @@
       <p id="charts-status" role="status"></p>
       <ul id="charts-list" class="cards"></ul>
     </section>
+
+    <section id="detail-view" hidden>
+      <a href="#/" class="back-link">← Grafiklere dön</a>
+      <h2 id="detail-title"></h2>
+      <p id="detail-meta" class="muted"></p>
+      <p id="detail-status" role="status"></p>
+
+      <div id="detail-content" hidden>
+        <div class="chart-wrap">
+          <svg id="spc-chart" role="img" aria-label="Kontrol grafiği"></svg>
+        </div>
+        <p id="chart-empty" class="muted" hidden>Bu grafiğe henüz ölçüm girilmedi.</p>
+        <p id="limits-info" class="muted"></p>
+
+        <div class="panel">
+          <form id="measure-form" hidden>
+            <label for="measure-values" id="measure-label">Ölçüm değeri</label>
+            <input id="measure-values" type="text" inputmode="decimal" autocomplete="off" required>
+            <button id="measure-button" type="submit">Ölçüm ekle</button>
+          </form>
+          <button id="recompute-button" type="button" class="secondary" hidden>Limitleri yeniden hesapla</button>
+          <p id="measure-message" role="status" hidden></p>
+        </div>
+
+        <h3>Son alarmlar</h3>
+        <p id="alarms-empty" class="muted" hidden>Alarm yok.</p>
+        <ul id="alarms-list" class="cards"></ul>
+      </div>
+    </section>
   </main>
 
   <script src="app.js"></script>
