@@ -11,12 +11,15 @@ import (
 	"time"
 
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/auth"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/catalogstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/config"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/database"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/httpapi"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spcstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/workorder"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/workorderstore"
 )
 
 const (
@@ -82,6 +85,11 @@ func run() error {
 
 	spcStore := spcstore.New(pool)
 	httpapi.NewChartsAPI(spc.NewService(spcStore), spcStore).Register(mux, authenticate)
+
+	httpapi.NewCatalogAPI(catalogstore.New(pool)).Register(mux, authenticate)
+
+	orderStore := workorderstore.New(pool)
+	httpapi.NewWorkOrdersAPI(workorder.NewService(orderStore), orderStore).Register(mux, authenticate)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           mux,
