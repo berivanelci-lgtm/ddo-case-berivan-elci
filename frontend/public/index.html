@@ -4,33 +4,44 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>HatKontrol</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
-    .ok { color: #1a7f37; }
-    .fail { color: #cf222e; }
-  </style>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <h1>HatKontrol</h1>
-  <p>Üretim hattı takip ve kalite kontrol sistemi</p>
-  <p id="durum">Backend kontrol ediliyor...</p>
+  <header>
+    <h1>HatKontrol</h1>
+    <div id="session-info" hidden>
+      <span id="user-name"></span>
+      <button id="logout-button" type="button" class="secondary">Çıkış</button>
+    </div>
+  </header>
 
-  <script>
-    fetch("/api/health")
-      .then(function (response) {
-        if (!response.ok) { throw new Error("HTTP " + response.status); }
-        return response.json();
-      })
-      .then(function (data) {
-        var el = document.getElementById("durum");
-        el.textContent = "Backend: " + data.status + ", veritabanı: " + data.database;
-        el.className = "ok";
-      })
-      .catch(function () {
-        var el = document.getElementById("durum");
-        el.textContent = "Backend'e ulaşılamıyor.";
-        el.className = "fail";
-      });
-  </script>
+  <main>
+    <noscript>Bu uygulama JavaScript gerektirir.</noscript>
+
+    <section id="login-view" hidden>
+      <h2>Giriş yap</h2>
+      <form id="login-form">
+        <label for="email">E-posta</label>
+        <input id="email" type="email" autocomplete="username" required>
+
+        <label for="password">Parola</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+
+        <p id="login-error" class="error" role="alert" hidden></p>
+        <button id="login-button" type="submit">Giriş yap</button>
+      </form>
+    </section>
+
+    <section id="app-view" hidden>
+      <div class="section-head">
+        <h2>Kontrol grafikleri</h2>
+        <button id="refresh-button" type="button" class="secondary">Yenile</button>
+      </div>
+      <p id="charts-status" role="status"></p>
+      <ul id="charts-list" class="cards"></ul>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
 </body>
 </html>
