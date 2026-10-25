@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>HatKontrol</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+    .ok { color: #1a7f37; }
+    .fail { color: #cf222e; }
+  </style>
+</head>
+<body>
+  <h1>HatKontrol</h1>
+  <p>Üretim hattı takip ve kalite kontrol sistemi</p>
+  <p id="durum">Backend kontrol ediliyor...</p>
+
+  <script>
+    fetch("/api/health")
+      .then(function (response) {
+        if (!response.ok) { throw new Error("HTTP " + response.status); }
+        return response.json();
+      })
+      .then(function (data) {
+        var el = document.getElementById("durum");
+        el.textContent = "Backend: " + data.status + ", veritabanı: " + data.database;
+        el.className = "ok";
+      })
+      .catch(function () {
+        var el = document.getElementById("durum");
+        el.textContent = "Backend'e ulaşılamıyor.";
+        el.className = "fail";
+      });
+  </script>
+</body>
+</html>
