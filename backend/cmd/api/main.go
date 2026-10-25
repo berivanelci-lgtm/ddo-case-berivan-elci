@@ -14,6 +14,8 @@ import (
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/config"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/database"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/httpapi"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spcstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
 )
 
@@ -75,9 +77,11 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", httpapi.HealthHandler(pool))
 	mux.HandleFunc("POST /auth/login", httpapi.LoginHandler(authService))
-		authenticate := httpapi.Authenticate(tokens)
+	authenticate := httpapi.Authenticate(tokens)
 	mux.Handle("GET /me", authenticate(httpapi.MeHandler()))
 
+	spcStore := spcstore.New(pool)
+	httpapi.NewChartsAPI(spc.NewService(spcStore), spcStore).Register(mux, authenticate)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           mux,
