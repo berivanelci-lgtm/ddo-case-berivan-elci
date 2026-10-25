@@ -1,0 +1,125 @@
+﻿Pager usage is off.
+BEGIN
+
+=== Generating 1,000,000 alarm rows and 1,000,000 point rows over 500 charts ===
+CREATE TABLE
+INSERT 0 1000000
+CREATE TABLE
+INSERT 0 1000000
+ANALYZE
+ANALYZE
+
+==========================================================================
+INDEX 1: spc_alarms_chart_recent_idx on (chart_id, id DESC)
+Query: latest 50 alarms of one chart (chart detail screen)
+Each EXPLAIN runs twice; read the SECOND one (warm cache).
+==========================================================================
+
+--- WITHOUT the index (only the primary key and the UNIQUE constraint exist) ---
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..950.42 rows=50 width=36) (actual time=0.185..4.261 rows=50 loops=1)
+   Buffers: shared hit=371
+   ->  Index Scan Backward using zz_alarms_pkey on zz_alarms  (cost=0.42..37829.43 rows=1991 width=36) (actual time=0.182..4.247 rows=50 loops=1)
+         Filter: (chart_id = 250)
+         Rows Removed by Filter: 24701
+         Buffers: shared hit=371
+ Planning:
+   Buffers: shared hit=37 read=2
+ Planning Time: 1.696 ms
+ Execution Time: 4.382 ms
+(10 rows)
+
+                                                                    QUERY PLAN                                                                    
+--------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..950.42 rows=50 width=36) (actual time=0.156..6.469 rows=50 loops=1)
+   Buffers: shared hit=371
+   ->  Index Scan Backward using zz_alarms_pkey on zz_alarms  (cost=0.42..37829.43 rows=1991 width=36) (actual time=0.154..6.448 rows=50 loops=1)
+         Filter: (chart_id = 250)
+         Rows Removed by Filter: 24701
+         Buffers: shared hit=371
+ Planning Time: 0.152 ms
+ Execution Time: 6.575 ms
+(8 rows)
+
+CREATE INDEX
+ANALYZE
+
+--- WITH the index ---
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..182.93 rows=50 width=36) (actual time=0.226..0.353 rows=50 loops=1)
+   Buffers: shared hit=53 read=3
+   ->  Index Scan using zz_alarms_recent_idx on zz_alarms  (cost=0.42..7271.27 rows=1992 width=36) (actual time=0.223..0.338 rows=50 loops=1)
+         Index Cond: (chart_id = 250)
+         Buffers: shared hit=53 read=3
+ Planning:
+   Buffers: shared hit=24 read=1
+ Planning Time: 1.845 ms
+ Execution Time: 0.440 ms
+(9 rows)
+
+                                                                  QUERY PLAN                                                                  
+----------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..182.93 rows=50 width=36) (actual time=0.185..0.286 rows=50 loops=1)
+   Buffers: shared hit=53
+   ->  Index Scan using zz_alarms_recent_idx on zz_alarms  (cost=0.42..7271.27 rows=1992 width=36) (actual time=0.158..0.249 rows=50 loops=1)
+         Index Cond: (chart_id = 250)
+         Buffers: shared hit=53
+ Planning Time: 0.426 ms
+ Execution Time: 0.520 ms
+(7 rows)
+
+
+==========================================================================
+INDEX 2: spc_points primary key on (chart_id, seq)
+Query: last 8 points of one chart (read on every measurement)
+==========================================================================
+
+--- WITHOUT the index ---
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=16534.96..16535.89 rows=8 width=45) (actual time=70.770..81.779 rows=8 loops=1)
+   Buffers: shared hit=10420 read=2
+   ->  Gather Merge  (cost=16534.96..16728.64 rows=1660 width=45) (actual time=70.767..81.770 rows=8 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=10420 read=2
+         ->  Sort  (cost=15534.93..15537.01 rows=830 width=45) (actual time=48.926..48.930 rows=6 loops=3)
+               Sort Key: seq DESC
+               Sort Method: top-N heapsort  Memory: 26kB
+               Buffers: shared hit=10420 read=2
+               Worker 0:  Sort Method: top-N heapsort  Memory: 26kB
+               Worker 1:  Sort Method: top-N heapsort  Memory: 26kB
+               ->  Parallel Seq Scan on zz_points  (cost=0.00..15518.33 rows=830 width=45) (actual time=0.079..47.824 rows=667 loops=3)
+                     Filter: (chart_id = 250)
+                     Rows Removed by Filter: 332667
+                     Buffers: shared hit=10310
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 0.322 ms
+ Execution Time: 82.311 ms
+(20 rows)
+
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=16534.96..16535.89 rows=8 width=45) (actual time=57.288..68.784 rows=8 loops=1)
+   Buffers: shared hit=10422
+   ->  Gather Merge  (cost=16534.96..16728.64 rows=1660 width=45) (actual time=57.285..68.777 rows=8 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=10422
+         ->  Sort  (cost=15534.93..15537.01 rows=830 width=45) (actual time=47.862..47.865 rows=6 loops=3)
+               Sort Key: seq DESC
+               Sort Method: top-N heapsort  Memory: 26kB
+               Buffers: shared hit=10422
+               Worker 0:  Sort Method: top-N heapsort  Memory: 26kB
+               Worker 1:  Sort Method: top-N heapsort  Memory: 26kB
+               ->  Parallel Seq Scan on zz_points  (cost=0.00..15518.33 rows=830 width=45) (actual time=0.067..46.917 rows=667 loops=3)
+                     Filter: (chart_id = 250)
+                     Rows Removed by Filter: 332667
+                     Buffers: shared hit=10310
+ Planning Time: 0.145 ms
+ Execution Time: 68.874 ms
+(18 rows)
+

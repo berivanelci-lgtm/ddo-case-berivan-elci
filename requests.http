@@ -1,0 +1,273 @@
+# HatKontrol - elle deneme koleksiyonu
+# VS Code "REST Client" eklentisi (humao.rest-client) gerekir.
+# Kullanim: once "GIRIS" bolumundeki istekleri gonder (her istegin ustundeki "Send Request" baglantisi).
+# Token 15 dakika gecerlidir; suresi dolarsa giris isteklerini yeniden gonder.
+# Kodlar ve adlar {{$timestamp}} ile benzersiz olur, istekler tekrar calistirilabilir.
+
+@baseUrl = http://localhost:8080
+@password = Demo!2026Parola
+
+###############################################################
+# SAGLIK
+###############################################################
+
+### Saglik kontrolu (veritabani dahil)
+GET {{baseUrl}}/health
+
+###############################################################
+# GIRIS (6 rol)
+###############################################################
+
+### Operator
+# @name loginOperator
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{"email":"operator@hatkontrol.test","password":"{{password}}"}
+
+###
+@operatorToken = {{loginOperator.response.body.access_token}}
+
+### Hat sefi
+# @name loginSupervisor
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{"email":"hatsefi@hatkontrol.test","password":"{{password}}"}
+
+###
+@supervisorToken = {{loginSupervisor.response.body.access_token}}
+
+### Kalite muhendisi
+# @name loginQuality
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{"email":"kalite@hatkontrol.test","password":"{{password}}"}
+
+###
+@qualityToken = {{loginQuality.response.body.access_token}}
+
+### Uretim planlama
+# @name loginPlanner
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{"email":"planlama@hatkontrol.test","password":"{{password}}"}
+
+###
+@plannerToken = {{loginPlanner.response.body.access_token}}
+
+### Bakim
+# @name loginMaintenance
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{"email":"bakim@hatkontrol.test","password":"{{password}}"}
+
+###
+@maintenanceToken = {{loginMaintenance.response.body.access_token}}
+
+### Fabrika muduru
+# @name loginManager
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{"email":"mudur@hatkontrol.test","password":"{{password}}"}
+
+###
+@managerToken = {{loginManager.response.body.access_token}}
+
+###############################################################
+# KIMLIK DOGRULAMA VE YETKI HATALARI (beklenen sonuc yaninda)
+###############################################################
+
+### Yanlis parola -> 401
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{"email":"operator@hatkontrol.test","password":"yanlis"}
+
+### Kayitsiz e-posta -> 401 (yanlis parola ile ayni mesaj)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{"email":"yok@hatkontrol.test","password":"yanlis"}
+
+### Token olmadan -> 401
+GET {{baseUrl}}/me
+
+### Token sahibi kim? -> 200
+GET {{baseUrl}}/me
+Authorization: Bearer {{operatorToken}}
+
+### Operator grafik olusturamaz -> 403
+POST {{baseUrl}}/charts
+Authorization: Bearer {{operatorToken}}
+Content-Type: application/json
+
+{"name":"yetkisiz-{{$timestamp}}","type":"individual"}
+
+###############################################################
+# SPC KONTROL GRAFIKLERI (T-1)
+###############################################################
+
+### Bireysel grafik olustur (kalite muhendisi) -> 201
+# @name createChart
+POST {{baseUrl}}/charts
+Authorization: Bearer {{qualityToken}}
+Content-Type: application/json
+
+{"name":"cap-{{$timestamp}}","type":"individual"}
+
+###
+@chartId = {{createChart.response.body.id}}
+
+### X-R grafik olustur, alt grup buyuklugu 3 -> 201
+POST {{baseUrl}}/charts
+Authorization: Bearer {{qualityToken}}
+Content-Type: application/json
+
+{"name":"uzunluk-{{$timestamp}}","type":"xbar_r","subgroup_size":3}
+
+### Grafikleri listele
+GET {{baseUrl}}/charts
+Authorization: Bearer {{operatorToken}}
+
+### Grafik detayi (limitler, son noktalar, son alarmlar)
+GET {{baseUrl}}/charts/{{chartId}}
+Authorization: Bearer {{operatorToken}}
+
+### Olcum ekle (operator). Limitler 25. olcumde hesaplanir; 25 olcumluk akis icin scripts/demo-spc.ps1
+POST {{baseUrl}}/charts/{{chartId}}/measurements
+Authorization: Bearer {{operatorToken}}
+Content-Type: application/json
+
+{"values":[10.2]}
+
+### Bakim olcum giremez -> 403
+POST {{baseUrl}}/charts/{{chartId}}/measurements
+Authorization: Bearer {{maintenanceToken}}
+Content-Type: application/json
+
+{"values":[10.2]}
+
+### Limitleri yeniden hesapla (yalniz kalite muhendisi; 25 nokta yoksa 409)
+POST {{baseUrl}}/charts/{{chartId}}/limits/recompute
+Authorization: Bearer {{qualityToken}}
+
+###############################################################
+# KATALOG: MALZEME, URUN, RECETE (planlama / mudur)
+###############################################################
+
+### Malzeme olustur (stok 500) -> 201
+# @name createMaterial
+POST {{baseUrl}}/materials
+Authorization: Bearer {{plannerToken}}
+Content-Type: application/json
+
+{"code":"MAT-{{$timestamp}}","name":"Celik plaka","stock_qty":500}
+
+###
+@materialId = {{createMaterial.response.body.id}}
+
+### Malzemeleri listele (guncel stoklar)
+GET {{baseUrl}}/materials
+Authorization: Bearer {{operatorToken}}
+
+### Urun ve recete olustur (urun basina 5 birim malzeme) -> 201
+# @name createProduct
+POST {{baseUrl}}/products
+Authorization: Bearer {{plannerToken}}
+Content-Type: application/json
+
+{"code":"URN-{{$timestamp}}","name":"Fren diski","bom":[{"material_id":{{materialId}},"qty_per_unit":5}]}
+
+###
+@productId = {{createProduct.response.body.id}}
+
+### Urunleri listele
+GET {{baseUrl}}/products
+Authorization: Bearer {{operatorToken}}
+
+###############################################################
+# IS EMRI VE MALZEME DUSUMU (T-4)
+###############################################################
+
+### Is emri olustur, plan 10 adet -> 201
+# @name createOrder
+POST {{baseUrl}}/work-orders
+Authorization: Bearer {{plannerToken}}
+Content-Type: application/json
+
+{"product_id":{{productId}},"planned_qty":10}
+
+###
+@orderId = {{createOrder.response.body.id}}
+
+### Is emrini uretime serbest birak
+POST {{baseUrl}}/work-orders/{{orderId}}/release
+Authorization: Bearer {{plannerToken}}
+
+### Uretim kaydi: 6 saglam, 1 fire, 3 yeniden islem (10 urun baslar, 50 birim malzeme duser)
+POST {{baseUrl}}/work-orders/{{orderId}}/production
+Authorization: Bearer {{operatorToken}}
+Content-Type: application/json
+
+{"good":6,"scrap":1,"rework":3}
+
+### Yeniden islem sonucu: 2 saglam, 1 fire (ek malzeme dusmez)
+POST {{baseUrl}}/work-orders/{{orderId}}/rework
+Authorization: Bearer {{qualityToken}}
+Content-Type: application/json
+
+{"good":2,"scrap":1}
+
+### Onaysiz kismi kapanis -> 409 partial_not_confirmed (saglam 8, plan 10)
+POST {{baseUrl}}/work-orders/{{orderId}}/close
+Authorization: Bearer {{supervisorToken}}
+
+### Onayli kismi kapanis -> 200 completed
+POST {{baseUrl}}/work-orders/{{orderId}}/close
+Authorization: Bearer {{supervisorToken}}
+Content-Type: application/json
+
+{"allow_partial":true}
+
+### Is emri detayi
+GET {{baseUrl}}/work-orders/{{orderId}}
+Authorization: Bearer {{operatorToken}}
+
+### Stok dustu mu? (500 - 50 = 450)
+GET {{baseUrl}}/materials
+Authorization: Bearer {{operatorToken}}
+
+### Is emirlerini listele, keyset sayfalama: ilk sayfa
+GET {{baseUrl}}/work-orders?limit=2
+Authorization: Bearer {{operatorToken}}
+
+### Sonraki sayfa: onceki yanittaki next_before degerini yaz
+GET {{baseUrl}}/work-orders?limit=2&before=1
+Authorization: Bearer {{operatorToken}}
+
+### Iptal ornegi: uretimden once iptal edilebilir -> 200 cancelled
+# @name createOrder2
+POST {{baseUrl}}/work-orders
+Authorization: Bearer {{plannerToken}}
+Content-Type: application/json
+
+{"product_id":{{productId}},"planned_qty":5}
+
+###
+@order2Id = {{createOrder2.response.body.id}}
+
+### Iptal
+POST {{baseUrl}}/work-orders/{{order2Id}}/cancel
+Authorization: Bearer {{plannerToken}}
+
+### Iptal edilmis is emrine uretim -> 409 invalid_transition
+POST {{baseUrl}}/work-orders/{{order2Id}}/production
+Authorization: Bearer {{operatorToken}}
+Content-Type: application/json
+
+{"good":1}
