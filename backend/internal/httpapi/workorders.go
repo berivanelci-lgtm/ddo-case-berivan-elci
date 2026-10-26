@@ -54,7 +54,7 @@ func NewWorkOrdersAPI(service WorkOrderService, repo workorder.Repository) *Work
 
 // Register, iş emri uçlarını rol kontrolleriyle birlikte mux'a ekler.
 func (a *WorkOrdersAPI) Register(mux *http.ServeMux, authenticate func(http.Handler) http.Handler) {
-	mux.Handle("POST /work-orders", protected(authenticate, a.create,
+	mux.Handle("POST /work-orders", protected(authenticate, a.idempotent(a.create),
 		user.RoleUretimPlanlama, user.RoleFabrikaMuduru))
 	mux.Handle("GET /work-orders", protected(authenticate, a.list))
 	mux.Handle("GET /work-orders/{id}", protected(authenticate, a.get))
