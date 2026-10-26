@@ -19,6 +19,7 @@ import (
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/genealogystore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/httpapi"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/idempotency"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/metrics"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spcstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
@@ -83,6 +84,9 @@ func run() error {
 	}
 
 	mux := http.NewServeMux()
+	registry := metrics.New()
+	mux.Handle("GET /metrics", registry.Handler())
+
 	mux.HandleFunc("GET /health", httpapi.HealthHandler(pool))
 	mux.HandleFunc("POST /auth/login", httpapi.LoginHandler(authService))
 	authenticate := httpapi.Authenticate(tokens)
@@ -100,9 +104,8 @@ func run() error {
 	httpapi.NewAuditAPI(audit.NewReader(pool)).Register(mux, authenticate)
 	httpapi.NewTraceabilityAPI(genealogy.NewService(genealogystore.New(pool))).Register(mux, authenticate)
 	server := &http.Server{
-		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
-		ReadHeaderTimeout: readHeaderTimeout,
+		Addr:    cfg.HTTPAddr,
+		Handler: registry.Middleware(mux), ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	serverErr := make(chan error, 1)
