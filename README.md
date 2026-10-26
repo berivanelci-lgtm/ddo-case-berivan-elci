@@ -118,8 +118,8 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 | F-2 Üretim kaydı | Kısmen | Sayaç, fire, yeniden işlem var; **duruş nedenleri yok** |
 | F-3 Kalite ölçümü | Kısmen | Ölçüm girişi SPC grafiği üzerinden; ayrı bir kalite formu tanımı yok |
 | F-4 SPC grafikleri ve alarmlar | Tamam | API ve arayüz |
-| F-5 NCR | Yapılmadı | |
-| F-6 OEE panosu | Yapılmadı | |
+|  F-5 NCR | Tamam (API) | open → investigating → closed; kapatmak için kök neden ve düzeltici faaliyet zorunlu (kod + CHECK); yalnızca kalite mühendisi inceler/kapatır; değişiklikler audit_log'a yazılır |
+| F-6 OEE panosu | Yapılmadı | 
 | F-7 İzlenebilirlik raporu | Tamam (API) | Geri çağırma raporu: etkilenen seriler, sevkiyatlar, müşteriler; arayüz ekranı yok |
 
 ### Zorlu görevler
