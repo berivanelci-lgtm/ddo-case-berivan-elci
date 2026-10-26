@@ -91,6 +91,7 @@ func run() error {
 	mux := http.NewServeMux()
 	registry := metrics.New()
 	mux.Handle("GET /metrics", registry.Handler())
+	mux.HandleFunc("GET /openapi.yaml", httpapi.OpenAPIHandler())
 
 	mux.HandleFunc("GET /health", httpapi.HealthHandler(pool))
 	mux.HandleFunc("POST /auth/login", httpapi.LoginHandler(authService))

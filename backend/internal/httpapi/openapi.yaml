@@ -1,0 +1,963 @@
+openapi: 3.0.3
+info:
+  title: HatKontrol API
+  version: "1.0"
+  description: |
+    Üretim hattı takip ve kalite kontrol sistemi (MES).
+    Korumalı uçlar `Authorization: Bearer <access_token>` ister. Token yoksa ya da geçersizse 401,
+    rol yetkisi yoksa 403 döner. Her uçta izinli roller açıklamada yazılıdır.
+    Tüm hatalar `{"error":{"code":"...","message":"..."}}` biçimindedir.
+servers:
+  - url: http://localhost:8080
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Sistem
+  - name: Kimlik
+  - name: SPC
+  - name: Katalog
+  - name: İş emri
+  - name: Denetim
+  - name: İzlenebilirlik
+  - name: NCR
+  - name: OEE
+  - name: Sensör
+
+paths:
+  /health:
+    get:
+      tags: [Sistem]
+      summary: Sağlık kontrolü (veritabanı dahil)
+      security: []
+      responses:
+        "200":
+          description: Sağlıklı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, example: ok }
+                  database: { type: string, example: ok }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /metrics:
+    get:
+      tags: [Sistem]
+      summary: Prometheus metin biçiminde metrikler
+      security: []
+      responses:
+        "200":
+          description: Metrikler
+          content:
+            text/plain: { schema: { type: string } }
+
+  /openapi.yaml:
+    get:
+      tags: [Sistem]
+      summary: Bu doküman
+      security: []
+      responses:
+        "200":
+          description: OpenAPI dokümanı
+          content:
+            application/yaml: { schema: { type: string } }
+
+  /auth/login:
+    post:
+      tags: [Kimlik]
+      summary: Giriş; access ve refresh token verir
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, example: operator@hatkontrol.test }
+                password: { type: string, example: Demo!2026Parola }
+      responses:
+        "200": { $ref: "#/components/responses/TokenPair" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /auth/refresh:
+    post:
+      tags: [Kimlik]
+      summary: Refresh token ile yeni token çifti (rol veritabanından okunur)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/TokenPair" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /me:
+    get:
+      tags: [Kimlik]
+      summary: Token sahibinin kimliği ve rolü
+      responses:
+        "200":
+          description: Kullanıcı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: integer }
+                  role: { $ref: "#/components/schemas/Role" }
+        "401": { $ref: "#/components/responses/Error" }
+
+  /charts:
+    get:
+      tags: [SPC]
+      summary: Kontrol grafiklerini listeler (tüm roller)
+      responses:
+        "200":
+          description: Grafikler
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Chart" } }
+    post:
+      tags: [SPC]
+      summary: Kontrol grafiği oluşturur (kalite mühendisi, hat şefi, fabrika müdürü)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, type]
+              properties:
+                name: { type: string, maxLength: 100 }
+                type: { type: string, enum: [individual, xbar_r] }
+                subgroup_size: { type: integer, minimum: 1, maximum: 10, description: "xbar_r için 2-10" }
+      responses:
+        "201":
+          description: Oluşturuldu
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Chart" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /charts/{id}:
+    get:
+      tags: [SPC]
+      summary: Grafik, son limit sürümü, son 100 nokta ve son 50 alarm (tüm roller)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: Grafik detayı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  chart: { $ref: "#/components/schemas/Chart" }
+                  limits: { $ref: "#/components/schemas/Limits" }
+                  points:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        seq: { type: integer }
+                        values: { type: array, items: { type: number } }
+                        statistic: { type: number }
+                  alarms: { type: array, items: { $ref: "#/components/schemas/Alarm" } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /charts/{id}/measurements:
+    post:
+      tags: [SPC]
+      summary: Ölçüm ekler ve kuralları değerlendirir (operatör, hat şefi, kalite mühendisi)
+      description: İlk 25 noktadan sonra limitler otomatik hesaplanır. Aynı ihlal için tekrar alarm üretilmez.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                values: { type: array, items: { type: number }, description: "Bireysel grafikte 1, X̄-R grafikte alt grup büyüklüğü kadar" }
+      responses:
+        "201":
+          description: Kaydedildi
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  seq: { type: integer }
+                  statistic: { type: number }
+                  limits_computed: { type: boolean }
+                  limit_version: { type: integer }
+                  limits: { $ref: "#/components/schemas/Limits" }
+                  alarms: { type: array, items: { $ref: "#/components/schemas/Alarm" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /charts/{id}/limits/recompute:
+    post:
+      tags: [SPC]
+      summary: Son 25 noktadan yeni limit sürümü (yalnız kalite mühendisi)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "201":
+          description: Yeni sürüm
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Limits" } }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /materials:
+    get:
+      tags: [Katalog]
+      summary: Malzemeler ve güncel stok (tüm roller)
+      responses:
+        "200":
+          description: Malzemeler
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Material" } }
+    post:
+      tags: [Katalog]
+      summary: Malzeme oluşturur (üretim planlama, fabrika müdürü)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name, stock_qty]
+              properties:
+                code: { type: string, maxLength: 40 }
+                name: { type: string, maxLength: 100 }
+                stock_qty: { type: integer, minimum: 0 }
+      responses:
+        "201":
+          description: Oluşturuldu
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Material" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /products:
+    get:
+      tags: [Katalog]
+      summary: Ürünler ve reçeteleri (tüm roller)
+      responses:
+        "200":
+          description: Ürünler
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Product" } }
+    post:
+      tags: [Katalog]
+      summary: Ürün ve reçete (BOM) oluşturur (üretim planlama, fabrika müdürü)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name, bom]
+              properties:
+                code: { type: string }
+                name: { type: string }
+                bom:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      material_id: { type: integer }
+                      qty_per_unit: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Oluşturuldu
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Product" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /work-orders:
+    get:
+      tags: [İş emri]
+      summary: İş emirleri, keyset sayfalama (tüm roller)
+      parameters:
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Before" }
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/WorkOrder" } }
+                  next_before: { type: integer, nullable: true }
+    post:
+      tags: [İş emri]
+      summary: İş emri oluşturur (üretim planlama, fabrika müdürü)
+      parameters: [{ $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product_id, planned_qty]
+              properties:
+                product_id: { type: integer }
+                planned_qty: { type: integer, minimum: 1 }
+      responses:
+        "201": { $ref: "#/components/responses/WorkOrder" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /work-orders/{id}:
+    get:
+      tags: [İş emri]
+      summary: İş emri detayı (tüm roller)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/WorkOrder" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /work-orders/{id}/release:
+    post:
+      tags: [İş emri]
+      summary: Üretime serbest bırakır (üretim planlama, hat şefi, fabrika müdürü)
+      parameters: [{ $ref: "#/components/parameters/Id" }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      responses:
+        "200": { $ref: "#/components/responses/WorkOrder" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /work-orders/{id}/cancel:
+    post:
+      tags: [İş emri]
+      summary: Üretim başlamadan iptal (üretim planlama, fabrika müdürü)
+      parameters: [{ $ref: "#/components/parameters/Id" }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      responses:
+        "200": { $ref: "#/components/responses/WorkOrder" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /work-orders/{id}/production:
+    post:
+      tags: [İş emri]
+      summary: Üretim kaydı; reçeteye göre malzeme düşer (operatör, hat şefi)
+      description: Stok yetmezse hiçbir şey değişmez ve 409 insufficient_stock döner.
+      parameters: [{ $ref: "#/components/parameters/Id" }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                good: { type: integer, minimum: 0 }
+                scrap: { type: integer, minimum: 0 }
+                rework: { type: integer, minimum: 0 }
+      responses:
+        "200": { $ref: "#/components/responses/WorkOrder" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /work-orders/{id}/rework:
+    post:
+      tags: [İş emri]
+      summary: Yeniden işlem sonucu (operatör, hat şefi, kalite mühendisi)
+      parameters: [{ $ref: "#/components/parameters/Id" }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                good: { type: integer, minimum: 0 }
+                scrap: { type: integer, minimum: 0 }
+      responses:
+        "200": { $ref: "#/components/responses/WorkOrder" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /work-orders/{id}/close:
+    post:
+      tags: [İş emri]
+      summary: Kapanış; malzeme tutarlılığı denetlenir (hat şefi, fabrika müdürü)
+      parameters: [{ $ref: "#/components/parameters/Id" }, { $ref: "#/components/parameters/IdempotencyKey" }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                allow_partial: { type: boolean, description: "Plan tamamlanmadan kapatmak için true" }
+      responses:
+        "200": { $ref: "#/components/responses/WorkOrder" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /audit-log:
+    get:
+      tags: [Denetim]
+      summary: Eklemeli-yalnız denetim kaydı (yalnız fabrika müdürü)
+      parameters:
+        - name: entity_type
+          in: query
+          schema: { type: string, enum: [charts, materials, products, work_orders, spc_limit_sets, ncrs, lines, downtime_events] }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Before" }
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: integer }
+                        occurred_at: { type: string, format: date-time }
+                        user_id: { type: integer, nullable: true }
+                        action: { type: string, enum: [insert, update, delete] }
+                        entity_type: { type: string }
+                        entity_id: { type: integer }
+                        old_value: { type: object, nullable: true }
+                        new_value: { type: object, nullable: true }
+                  next_before: { type: integer, nullable: true }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /traceability/lots/{code}/backward:
+    get:
+      tags: [İzlenebilirlik]
+      summary: Geri izleme, seri numarasından hammaddelere (kalite, planlama, hat şefi, müdür)
+      parameters: [{ $ref: "#/components/parameters/LotCode" }]
+      responses:
+        "200": { $ref: "#/components/responses/Trace" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /traceability/lots/{code}/forward:
+    get:
+      tags: [İzlenebilirlik]
+      summary: İleri izleme, hammadde partisinden ürünlere (kalite, planlama, hat şefi, müdür)
+      parameters: [{ $ref: "#/components/parameters/LotCode" }]
+      responses:
+        "200": { $ref: "#/components/responses/Trace" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /traceability/lots/{code}/recall:
+    get:
+      tags: [İzlenebilirlik]
+      summary: Geri çağırma raporu (kalite, planlama, hat şefi, müdür)
+      parameters: [{ $ref: "#/components/parameters/LotCode" }]
+      responses:
+        "200":
+          description: Rapor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  lot: { $ref: "#/components/schemas/Lot" }
+                  affected_serial_count: { type: integer }
+                  affected_serials: { type: array, items: { type: string } }
+                  customers: { type: array, items: { type: string } }
+                  shipments:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        code: { type: string }
+                        customer: { type: string }
+                        shipped_at: { type: string, format: date-time }
+                        affected_units: { type: integer }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /ncrs:
+    get:
+      tags: [NCR]
+      summary: Uygunsuzluk kayıtları, keyset sayfalama (tüm roller)
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string, enum: [open, investigating, closed] }
+        - { $ref: "#/components/parameters/Limit" }
+        - { $ref: "#/components/parameters/Before" }
+      responses:
+        "200":
+          description: Sayfa
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/NCR" } }
+                  next_before: { type: integer, nullable: true }
+    post:
+      tags: [NCR]
+      summary: Uygunsuzluk açar (operatör, hat şefi, kalite mühendisi)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, severity]
+              properties:
+                title: { type: string, maxLength: 200 }
+                description: { type: string }
+                severity: { type: string, enum: [minor, major, critical] }
+                work_order_id: { type: integer, nullable: true }
+                chart_id: { type: integer, nullable: true }
+      responses:
+        "201": { $ref: "#/components/responses/NCR" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+  /ncrs/{id}:
+    get:
+      tags: [NCR]
+      summary: Uygunsuzluk detayı (tüm roller)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/NCR" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /ncrs/{id}/investigate:
+    post:
+      tags: [NCR]
+      summary: İncelemeye alır (yalnız kalite mühendisi)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200": { $ref: "#/components/responses/NCR" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /ncrs/{id}/close:
+    post:
+      tags: [NCR]
+      summary: Kapatır; kök neden ve düzeltici faaliyet zorunlu (yalnız kalite mühendisi)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [root_cause, corrective_action]
+              properties:
+                root_cause: { type: string }
+                corrective_action: { type: string }
+      responses:
+        "200": { $ref: "#/components/responses/NCR" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /lines:
+    get:
+      tags: [OEE]
+      summary: Hatlar (tüm roller)
+      responses:
+        "200":
+          description: Hatlar
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Line" } }
+    post:
+      tags: [OEE]
+      summary: Hat oluşturur (üretim planlama, fabrika müdürü)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, name, ideal_cycle_ms]
+              properties:
+                code: { type: string, maxLength: 40 }
+                name: { type: string, maxLength: 100 }
+                ideal_cycle_ms: { type: integer, minimum: 1 }
+      responses:
+        "201":
+          description: Oluşturuldu
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Line" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /downtime-reasons:
+    get:
+      tags: [OEE]
+      summary: Duruş nedenleri ve planlı/plansız ayrımı (tüm roller)
+      responses:
+        "200":
+          description: Nedenler
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    code: { type: string }
+                    description: { type: string }
+                    planned: { type: boolean }
+
+  /lines/{code}/downtime:
+    post:
+      tags: [OEE]
+      summary: Duruş olayı (operatör, hat şefi, bakım); geç gelebilir
+      parameters: [{ $ref: "#/components/parameters/LineCode" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason_code, started_at, ended_at]
+              properties:
+                reason_code: { type: string, example: BREAKDOWN }
+                started_at: { type: string, format: date-time }
+                ended_at: { type: string, format: date-time }
+      responses:
+        "201": { $ref: "#/components/responses/Created" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /lines/{code}/counts:
+    post:
+      tags: [OEE]
+      summary: Üretim sayacı (operatör, hat şefi)
+      parameters: [{ $ref: "#/components/parameters/LineCode" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [occurred_at]
+              properties:
+                occurred_at: { type: string, format: date-time }
+                good: { type: integer, minimum: 0 }
+                scrap: { type: integer, minimum: 0 }
+      responses:
+        "201": { $ref: "#/components/responses/Created" }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /lines/{code}/oee:
+    get:
+      tags: [OEE]
+      summary: Günlük OEE raporu, vardiya A/B/C ve gün toplamı (tüm roller)
+      description: Her istekte olaylardan yeniden hesaplanır; geç gelen olaylar geçmiş sonucu düzeltir.
+      parameters:
+        - { $ref: "#/components/parameters/LineCode" }
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date, example: "2026-10-20" }
+      responses:
+        "200":
+          description: Rapor
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  line: { $ref: "#/components/schemas/Line" }
+                  date: { type: string, format: date }
+                  shifts: { type: array, items: { $ref: "#/components/schemas/OEEResult" } }
+                  day: { $ref: "#/components/schemas/OEEResult" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /sensor-readings:
+    post:
+      tags: [Sensör]
+      summary: Toplu sensör okuması, COPY ile aylık partisyona (operatör, hat şefi, bakım)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [readings]
+              properties:
+                readings:
+                  type: array
+                  minItems: 1
+                  maxItems: 1000
+                  items:
+                    type: object
+                    properties:
+                      station_id: { type: integer, minimum: 1, maximum: 1000 }
+                      recorded_at: { type: string, format: date-time }
+                      value: { type: number }
+      responses:
+        "201":
+          description: Yazıldı
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  inserted: { type: integer }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    LotCode:
+      name: code
+      in: path
+      required: true
+      schema: { type: string, example: RAW-050000 }
+    LineCode:
+      name: code
+      in: path
+      required: true
+      schema: { type: string }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Before:
+      name: before
+      in: query
+      description: Keyset imleci; önceki yanıttaki next_before değeri
+      schema: { type: integer, minimum: 1 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: |
+        İsteğe bağlı. Aynı anahtar ve aynı gövdeyle tekrar gelen istek ilk yanıtı döner
+        (Idempotent-Replayed: true). Farklı gövde 422, eşzamanlı çift istek 409.
+      schema: { type: string, maxLength: 128 }
+
+  responses:
+    Error:
+      description: Hata
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/Error" } }
+    TokenPair:
+      description: Token çifti
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              access_token: { type: string }
+              refresh_token: { type: string }
+              token_type: { type: string, example: Bearer }
+              user:
+                type: object
+                properties:
+                  id: { type: integer }
+                  email: { type: string }
+                  full_name: { type: string }
+                  role: { $ref: "#/components/schemas/Role" }
+    WorkOrder:
+      description: İş emri
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/WorkOrder" } }
+    NCR:
+      description: Uygunsuzluk kaydı
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/NCR" } }
+    Trace:
+      description: İzleme sonucu
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              lot: { $ref: "#/components/schemas/Lot" }
+              lots:
+                type: array
+                items:
+                  allOf:
+                    - { $ref: "#/components/schemas/Lot" }
+                    - type: object
+                      properties:
+                        depth: { type: integer }
+    Created:
+      description: Oluşturuldu
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              id: { type: integer }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code: { type: string, example: forbidden }
+            message: { type: string }
+    Role:
+      type: string
+      enum: [operator, hat_sefi, kalite_muhendisi, uretim_planlama, bakim, fabrika_muduru]
+    Chart:
+      type: object
+      properties:
+        id: { type: integer }
+        name: { type: string }
+        type: { type: string, enum: [individual, xbar_r] }
+        subgroup_size: { type: integer }
+    Limits:
+      type: object
+      nullable: true
+      properties:
+        version: { type: integer }
+        center: { type: number }
+        sigma: { type: number }
+        ucl: { type: number }
+        lcl: { type: number }
+        range:
+          type: object
+          nullable: true
+          properties:
+            center: { type: number }
+            ucl: { type: number }
+            lcl: { type: number }
+    Alarm:
+      type: object
+      properties:
+        point_seq: { type: integer }
+        rule:
+          type: string
+          enum: [beyond_3_sigma, same_side_8, trend_6, two_of_three_beyond_2_sigma, four_of_five_beyond_1_sigma]
+        value: { type: number }
+        limit_version: { type: integer }
+    Material:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        stock_qty: { type: integer }
+    Product:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        bom:
+          type: array
+          items:
+            type: object
+            properties:
+              material_id: { type: integer }
+              qty_per_unit: { type: integer }
+    WorkOrder:
+      type: object
+      properties:
+        id: { type: integer }
+        product_id: { type: integer }
+        planned_qty: { type: integer }
+        status: { type: string, enum: [planned, released, in_progress, completed, cancelled] }
+        started_qty: { type: integer }
+        good_qty: { type: integer }
+        scrap_qty: { type: integer }
+        rework_pending: { type: integer }
+    Lot:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        kind: { type: string, enum: [raw, intermediate, serial] }
+    NCR:
+      type: object
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        description: { type: string }
+        severity: { type: string, enum: [minor, major, critical] }
+        status: { type: string, enum: [open, investigating, closed] }
+        work_order_id: { type: integer, nullable: true }
+        chart_id: { type: integer, nullable: true }
+        opened_by: { type: integer }
+        root_cause: { type: string, nullable: true }
+        corrective_action: { type: string, nullable: true }
+        closed_by: { type: integer, nullable: true }
+        created_at: { type: string, format: date-time }
+        closed_at: { type: string, format: date-time, nullable: true }
+    Line:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        ideal_cycle_ms: { type: integer }
+    OEEResult:
+      type: object
+      properties:
+        shift: { type: string, enum: [A, B, C] }
+        start: { type: string, format: date-time }
+        end: { type: string, format: date-time }
+        planned_downtime_min: { type: number }
+        unplanned_downtime_min: { type: number }
+        planned_production_min: { type: number }
+        run_time_min: { type: number }
+        good: { type: integer }
+        scrap: { type: integer }
+        availability: { type: number }
+        performance: { type: number }
+        quality: { type: number }
+        oee: { type: number }
