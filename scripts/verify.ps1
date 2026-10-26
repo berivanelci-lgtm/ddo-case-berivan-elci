@@ -108,11 +108,9 @@ Add-Result "T-1" $(if ($spcPassed) { "PASS" } else { "FAIL" }) "SPC rule engine,
 Add-Result "T-4" $(if ($racePassed) { "PASS" } else { "FAIL" }) "work order state machine and stock race, scripts/demo-stock-race.ps1 (26 checks)"
 
 Add-Result "F-1" $(if ($racePassed) { "PASS" } else { "FAIL" }) "work orders and BOM through the API (same script as T-4)"
-Add-Result "F-2" $(if ($racePassed) { "PARTIAL" } else { "FAIL" }) "counters, scrap and rework work; downtime reasons are not implemented"
 Add-Result "F-3" $(if ($spcPassed) { "PARTIAL" } else { "FAIL" }) "measurement entry works through SPC charts; no separate quality form definition"
 Add-Result "F-4" $(if ($spcPassed) { "PASS" } else { "FAIL" }) "control charts and alarms through API and web UI (same script as T-1)"
-Add-Result "F-6" "NOT-DONE" "OEE dashboard is not implemented"
-Add-Result "T-2" "NOT-DONE" "OEE with late events is not implemented"
+
 Add-Result "T-5" "NOT-DONE" "high-volume sensor ingestion is not implemented"
 # --- Audit log: critical changes are recorded with the acting user; only the factory manager can read ---
 $managerLogin = Invoke-Login "mudur@hatkontrol.test" $Password
@@ -183,6 +181,13 @@ $ncrClosed = Invoke-Api -Method Post -Path "/ncrs/$ncrId/close" -Token $qualityT
 
 $f5Ok = $ncrMaint.Status -eq 403 -and $ncrNew.Status -eq 201 -and $ncrOpClose.Status -eq 403 -and $ncrEarly.Status -eq 409 -and $ncrInv.Status -eq 200 -and $ncrNoCause.Status -eq 400 -and $ncrClosed.Status -eq 200 -and $ncrClosed.Body.status -eq "closed"
 Add-Result "F-5" $(if ($f5Ok) { "PASS" } else { "FAIL" }) "NCR: maintenance 403, operator opens 201, early close 409, close without root cause 400, quality closes 200"
+# --- T-2, F-2, F-6: OEE from events, late events, downtime reasons ---
+$oeeRun = Invoke-ChildScript "demo-oee.ps1"
+$oeePassed = $oeeRun.Code -eq 0
+Add-Result "T-2" $(if ($oeePassed) { "PASS" } else { "FAIL" }) "OEE recomputed from events; late breakdown updates past shift and is split at 14:00, scripts/demo-oee.ps1"
+Add-Result "F-2" $(if ($oeePassed -and $racePassed) { "PASS" } else { "FAIL" }) "counters, scrap, rework (T-4) and line counters with planned/unplanned downtime reasons (T-2)"
+Add-Result "F-6" $(if ($oeePassed) { "PARTIAL" } else { "FAIL" }) "OEE by line, shift and day through the API; no UI dashboard"
+if (-not $oeePassed) { foreach ($line in $oeeRun.Output) { if ($line -match "^FAIL") { Write-Host "  [demo-oee.ps1] $line" -ForegroundColor Yellow } } }
 # --- Report ---
 Write-Host ""
 Write-Host ("{0,-8} {1,-9} {2}" -f "ID", "RESULT", "NOTE")

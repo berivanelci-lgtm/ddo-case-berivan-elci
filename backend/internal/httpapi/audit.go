@@ -13,12 +13,14 @@ import (
 
 // auditEntityTypes, denetim kaydı tutulan tabloların adlarıdır.
 var auditEntityTypes = map[string]bool{
-	"charts":         true,
-	"materials":      true,
-	"products":       true,
-	"work_orders":    true,
-	"spc_limit_sets": true,
-	"ncrs":           true,
+	"charts":          true,
+	"materials":       true,
+	"products":        true,
+	"work_orders":     true,
+	"spc_limit_sets":  true,
+	"ncrs":            true,
+	"lines":           true,
+	"downtime_events": true,
 }
 
 // AuditReader, denetim kayıtlarını okuyan her şeyi temsil eder.
