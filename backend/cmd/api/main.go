@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/audit"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/auth"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/catalogstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/config"
@@ -91,6 +92,7 @@ func run() error {
 
 	orderStore := workorderstore.New(pool)
 	httpapi.NewWorkOrdersAPI(workorder.NewService(orderStore), orderStore).Register(mux, authenticate)
+	httpapi.NewAuditAPI(audit.NewReader(pool)).Register(mux, authenticate)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           mux,

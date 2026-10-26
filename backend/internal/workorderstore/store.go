@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/audit"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/workorder"
 )
 
@@ -42,7 +43,7 @@ type querier interface {
 // WithOrderLock, iş emrinin satırını kilitleyip fn'i tek bir veritabanı işlemi içinde çalıştırır.
 // fn hata dönerse işlem geri alınır: malzeme düşümü, kayıtlar ve durum değişikliği birlikte iptal olur.
 func (s *Store) WithOrderLock(ctx context.Context, orderID int64, fn func(workorder.Tx) error) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := audit.Begin(ctx, s.pool)
 	if err != nil {
 		return fmt.Errorf("işlem başlatılamadı: %w", err)
 	}
@@ -70,11 +71,17 @@ func (s *Store) Create(ctx context.Context, productID, plannedQty, createdBy int
 		return workorder.WorkOrder{}, err
 	}
 
+	tx, err := audit.Begin(ctx, s.pool)
+	if err != nil {
+		return workorder.WorkOrder{}, fmt.Errorf("işlem başlatılamadı: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	const query = `
 		INSERT INTO work_orders (product_id, planned_qty, status, created_by)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id`
-	err = s.pool.QueryRow(ctx, query, productID, plannedQty, string(order.Status), createdBy).Scan(&order.ID)
+	err = tx.QueryRow(ctx, query, productID, plannedQty, string(order.Status), createdBy).Scan(&order.ID)
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == foreignKeyViolation {
@@ -82,6 +89,10 @@ func (s *Store) Create(ctx context.Context, productID, plannedQty, createdBy int
 	}
 	if err != nil {
 		return workorder.WorkOrder{}, fmt.Errorf("iş emri oluşturulamadı: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return workorder.WorkOrder{}, fmt.Errorf("işlem onaylanamadı: %w", err)
 	}
 	return order, nil
 }

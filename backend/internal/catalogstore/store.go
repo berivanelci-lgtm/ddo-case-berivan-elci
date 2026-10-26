@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/audit"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/catalog"
 )
 
@@ -31,18 +32,28 @@ func New(pool *pgxpool.Pool) *Store {
 
 // CreateMaterial, başlangıç stoğuyla yeni bir malzeme ekler.
 func (s *Store) CreateMaterial(ctx context.Context, code, name string, stockQty int64) (catalog.Material, error) {
+	tx, err := audit.Begin(ctx, s.pool)
+	if err != nil {
+		return catalog.Material{}, fmt.Errorf("işlem başlatılamadı: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	const query = `
 		INSERT INTO materials (code, name, stock_qty)
 		VALUES ($1, $2, $3)
 		RETURNING id`
 
 	material := catalog.Material{Code: code, Name: name, StockQty: stockQty}
-	err := s.pool.QueryRow(ctx, query, code, name, stockQty).Scan(&material.ID)
+	err = tx.QueryRow(ctx, query, code, name, stockQty).Scan(&material.ID)
 	if hasCode(err, uniqueViolation) {
 		return catalog.Material{}, catalog.ErrCodeExists
 	}
 	if err != nil {
 		return catalog.Material{}, fmt.Errorf("malzeme oluşturulamadı: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return catalog.Material{}, fmt.Errorf("işlem onaylanamadı: %w", err)
 	}
 	return material, nil
 }
@@ -74,7 +85,7 @@ func (s *Store) ListMaterials(ctx context.Context) ([]catalog.Material, error) {
 // CreateProduct, ürünü ve reçetesini tek bir işlemde ekler. Reçetede olmayan bir malzeme
 // varsa hiçbir şey eklenmez.
 func (s *Store) CreateProduct(ctx context.Context, code, name string, bom []catalog.BOMItem) (catalog.Product, error) {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := audit.Begin(ctx, s.pool)
 	if err != nil {
 		return catalog.Product{}, fmt.Errorf("işlem başlatılamadı: %w", err)
 	}

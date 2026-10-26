@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/audit"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/auth"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
 )
@@ -34,6 +35,7 @@ func Authenticate(parser TokenParser) func(http.Handler) http.Handler {
 			}
 
 			ctx := context.WithValue(r.Context(), claimsContextKey{}, claims)
+			ctx = audit.WithUser(ctx, claims.UserID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

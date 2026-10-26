@@ -117,7 +117,17 @@ Add-Result "F-7" "NOT-DONE" "batch and serial traceability reports are not imple
 Add-Result "T-2" "NOT-DONE" "OEE with late events is not implemented"
 Add-Result "T-3" "NOT-DONE" "forward and backward genealogy is not implemented"
 Add-Result "T-5" "NOT-DONE" "high-volume sensor ingestion is not implemented"
-
+# --- Audit log: critical changes are recorded with the acting user; only the factory manager can read ---
+$managerLogin = Invoke-Login "mudur@hatkontrol.test" $Password
+$managerToken = ""
+if ($managerLogin.Status -eq 200) { $managerToken = $managerLogin.Body.access_token }
+$auditManager = Invoke-Api -Method Get -Path "/audit-log?limit=20" -Token $managerToken
+$auditOperator = Invoke-Api -Method Get -Path "/audit-log?limit=20" -Token $operatorToken
+$auditItems = @()
+if ($auditManager.Body -and $auditManager.Body.items) { $auditItems = @($auditManager.Body.items) }
+$withUser = @($auditItems | Where-Object { $null -ne $_.user_id }).Count
+$auditOk = $auditManager.Status -eq 200 -and $auditItems.Count -gt 0 -and $withUser -eq $auditItems.Count -and $auditOperator.Status -eq 403
+Add-Result "AUDIT" $(if ($auditOk) { "PASS" } else { "FAIL" }) "audit log has records with acting user; operator gets 403, manager reads (append-only enforced by database triggers)"
 # --- Report ---
 Write-Host ""
 Write-Host ("{0,-8} {1,-9} {2}" -f "ID", "RESULT", "NOTE")

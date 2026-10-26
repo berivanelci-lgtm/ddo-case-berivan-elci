@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/audit"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
 )
 
@@ -40,7 +41,7 @@ type querier interface {
 // WithChartLock, grafiğin satırını kilitleyip fn'i tek bir veritabanı işlemi içinde çalıştırır.
 // fn hata dönerse işlem geri alınır.
 func (s *Store) WithChartLock(ctx context.Context, chartID int64, fn func(spc.ChartTx) error) error {
-	tx, err := s.pool.Begin(ctx)
+	tx, err := audit.Begin(ctx, s.pool)
 	if err != nil {
 		return fmt.Errorf("işlem başlatılamadı: %w", err)
 	}
@@ -67,13 +68,19 @@ func (s *Store) WithChartLock(ctx context.Context, chartID int64, fn func(spc.Ch
 
 // CreateChart, yeni bir kontrol grafiği oluşturur.
 func (s *Store) CreateChart(ctx context.Context, name string, chartType spc.ChartType, subgroupSize int, createdBy int64) (spc.Chart, error) {
+	tx, err := audit.Begin(ctx, s.pool)
+	if err != nil {
+		return spc.Chart{}, fmt.Errorf("işlem başlatılamadı: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+
 	const query = `
 		INSERT INTO charts (name, chart_type, subgroup_size, created_by)
 		VALUES ($1, $2, $3, $4)
 		RETURNING id`
 
 	chart := spc.Chart{Name: name, Type: chartType, SubgroupSize: subgroupSize}
-	err := s.pool.QueryRow(ctx, query, name, string(chartType), subgroupSize, createdBy).Scan(&chart.ID)
+	err = tx.QueryRow(ctx, query, name, string(chartType), subgroupSize, createdBy).Scan(&chart.ID)
 
 	var pgErr *pgconn.PgError
 	if errors.As(err, &pgErr) && pgErr.Code == uniqueViolation {
@@ -81,6 +88,10 @@ func (s *Store) CreateChart(ctx context.Context, name string, chartType spc.Char
 	}
 	if err != nil {
 		return spc.Chart{}, fmt.Errorf("grafik oluşturulamadı: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return spc.Chart{}, fmt.Errorf("işlem onaylanamadı: %w", err)
 	}
 	return chart, nil
 }
