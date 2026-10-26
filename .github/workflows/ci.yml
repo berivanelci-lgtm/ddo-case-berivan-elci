@@ -50,8 +50,8 @@ jobs:
       - name: Backend imajı
         run: docker build -t hatkontrol-backend ./backend
 
+      - name: Simülatör imajı
+        run: docker build -f backend/Dockerfile.simulator -t hatkontrol-simulator ./backend
+
       - name: Frontend imajı
         run: docker build -t hatkontrol-frontend ./frontend
-              - name: Simülatör imajı
-        run: docker build -f backend/Dockerfile.simulator -t hatkontrol-simulator ./backend
-        
