@@ -745,6 +745,95 @@ paths:
                   inserted: { type: integer }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
+          /quality-forms:
+    get:
+      tags: [Kalite]
+      summary: Kalite ölçüm formları (tüm roller)
+      responses:
+        "200":
+          description: Formlar
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/QualityForm" } }
+    post:
+      tags: [Kalite]
+      summary: Kalite formu tanımlar (yalnız kalite mühendisi)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/QualityForm" }
+      responses:
+        "201":
+          description: Oluşturuldu
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/QualityForm" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /quality-forms/{id}:
+    get:
+      tags: [Kalite]
+      summary: Kalite formu (tüm roller)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: Form
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/QualityForm" } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /quality-forms/{id}/inspections:
+    get:
+      tags: [Kalite]
+      summary: Formun son 50 muayenesi (tüm roller)
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      responses:
+        "200":
+          description: Muayeneler
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Inspection" } }
+    post:
+      tags: [Kalite]
+      summary: Formu doldurur; tolerans değerlendirilir, bağlı SPC grafiklerine ölçüm gider (operatör, hat şefi, kalite)
+      description: Ölçüm cihazının kalibrasyonu dolmuşsa 409 calibration_expired döner.
+      parameters: [{ $ref: "#/components/parameters/Id" }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [values]
+              properties:
+                values: { type: array, items: { type: number } }
+                work_order_id: { type: integer, nullable: true }
+      responses:
+        "201":
+          description: Kaydedildi
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/Inspection" }
+                  - type: object
+                    properties:
+                      spc:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            position: { type: integer }
+                            chart_id: { type: integer }
+                            seq: { type: integer }
+                            alarms: { type: array, items: { $ref: "#/components/schemas/Alarm" } }
+                            error: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
 components:
   securitySchemes:
@@ -961,3 +1050,41 @@ components:
         performance: { type: number }
         quality: { type: number }
         oee: { type: number }
+            QualityForm:
+      type: object
+      properties:
+        id: { type: integer }
+        code: { type: string }
+        name: { type: string }
+        gauge_code: { type: string }
+        calibration_due: { type: string, format: date, nullable: true }
+        items:
+          type: array
+          items:
+            type: object
+            properties:
+              position: { type: integer }
+              characteristic: { type: string }
+              unit: { type: string }
+              nominal: { type: number }
+              lsl: { type: number }
+              usl: { type: number }
+              chart_id: { type: integer, nullable: true }
+    Inspection:
+      type: object
+      properties:
+        id: { type: integer }
+        form_id: { type: integer }
+        inspected_by: { type: integer }
+        inspected_at: { type: string, format: date-time }
+        work_order_id: { type: integer, nullable: true }
+        all_in_spec: { type: boolean }
+        values:
+          type: array
+          items:
+            type: object
+            properties:
+              position: { type: integer }
+              characteristic: { type: string }
+              value: { type: number }
+              in_spec: { type: boolean }

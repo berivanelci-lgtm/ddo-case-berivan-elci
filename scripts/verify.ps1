@@ -108,7 +108,6 @@ Add-Result "T-1" $(if ($spcPassed) { "PASS" } else { "FAIL" }) "SPC rule engine,
 Add-Result "T-4" $(if ($racePassed) { "PASS" } else { "FAIL" }) "work order state machine and stock race, scripts/demo-stock-race.ps1 (26 checks)"
 
 Add-Result "F-1" $(if ($racePassed) { "PASS" } else { "FAIL" }) "work orders and BOM through the API (same script as T-4)"
-Add-Result "F-3" $(if ($spcPassed) { "PARTIAL" } else { "FAIL" }) "measurement entry works through SPC charts; no separate quality form definition"
 Add-Result "F-4" $(if ($spcPassed) { "PASS" } else { "FAIL" }) "control charts and alarms through API and web UI (same script as T-1)"
 
 # --- Audit log: critical changes are recorded with the acting user; only the factory manager can read ---
@@ -209,6 +208,31 @@ if ($simChart) {
     $simPoints = @($simDetail.Body.points | Where-Object { $_ }).Count
 }
 Add-Result "SIM" $(if ($simPoints -gt 0) { "PASS" } else { "FAIL" }) "simulator service writes live data (chart $($simChart.name), $simPoints recent points)"
+# --- F-3: quality form, tolerance check, link to SPC, calibration block ---
+$fqStamp = Get-Date -Format "yyyyMMddHHmmss"
+$fqChart = Invoke-Api -Method Post -Path "/charts" -Token $qualityToken -Body ('{"name":"QF-CHART-' + $fqStamp + '","type":"individual"}')
+$fqChartId = 0
+if ($fqChart.Body) { $fqChartId = $fqChart.Body.id }
+$fqFormBody = '{"code":"QF-' + $fqStamp + '","name":"Flange check","gauge_code":"CALIPER-01","calibration_due":"2099-12-31","items":[' +
+    '{"characteristic":"Diameter","unit":"mm","nominal":10,"lsl":9.5,"usl":10.5,"chart_id":' + $fqChartId + '},' +
+    '{"characteristic":"Length","unit":"mm","nominal":50,"lsl":49,"usl":51}]}'
+$fqForm = Invoke-Api -Method Post -Path "/quality-forms" -Token $qualityToken -Body $fqFormBody
+$fqFormOp = Invoke-Api -Method Post -Path "/quality-forms" -Token $operatorToken -Body $fqFormBody
+$fqId = 0
+if ($fqForm.Body) { $fqId = $fqForm.Body.id }
+$fqInspect = Invoke-Api -Method Post -Path "/quality-forms/$fqId/inspections" -Token $operatorToken -Body '{"values":[10.1,51.5]}'
+$fqWrongCount = Invoke-Api -Method Post -Path "/quality-forms/$fqId/inspections" -Token $operatorToken -Body '{"values":[10.1]}'
+$fqMaint = Invoke-Api -Method Post -Path "/quality-forms/$fqId/inspections" -Token $maintToken -Body '{"values":[10,50]}'
+
+$fqExpired = Invoke-Api -Method Post -Path "/quality-forms" -Token $qualityToken -Body ('{"code":"QF-OLD-' + $fqStamp + '","name":"Old gauge","gauge_code":"OLD-01","calibration_due":"2020-01-01","items":[{"characteristic":"Diameter","unit":"mm","nominal":10,"lsl":9,"usl":11}]}')
+$fqExpiredId = 0
+if ($fqExpired.Body) { $fqExpiredId = $fqExpired.Body.id }
+$fqBlocked = Invoke-Api -Method Post -Path "/quality-forms/$fqExpiredId/inspections" -Token $operatorToken -Body '{"values":[10]}'
+
+$f3Ok = $fqForm.Status -eq 201 -and $fqFormOp.Status -eq 403 -and $fqInspect.Status -eq 201 -and
+    $fqInspect.Body.all_in_spec -eq $false -and $fqInspect.Body.values[0].in_spec -eq $true -and $fqInspect.Body.values[1].in_spec -eq $false -and
+    $fqInspect.Body.spc[0].seq -eq 1 -and $fqWrongCount.Status -eq 400 -and $fqMaint.Status -eq 403 -and $fqBlocked.Status -eq 409
+Add-Result "F-3" $(if ($f3Ok) { "PASS" } else { "FAIL" }) "quality form: tolerance check (length out of spec), value sent to SPC chart, wrong count 400, maintenance 403, expired calibration 409"
 # --- Report ---
 Write-Host ""
 Write-Host ("{0,-8} {1,-9} {2}" -f "ID", "RESULT", "NOTE")

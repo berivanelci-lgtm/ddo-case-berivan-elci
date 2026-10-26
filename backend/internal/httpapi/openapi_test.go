@@ -21,6 +21,7 @@ var documentedRoutes = []string{
 	"/ncrs", "/ncrs/{id}", "/ncrs/{id}/investigate", "/ncrs/{id}/close",
 	"/lines", "/downtime-reasons", "/lines/{code}/downtime", "/lines/{code}/counts", "/lines/{code}/oee",
 	"/sensor-readings",
+	"/quality-forms", "/quality-forms/{id}", "/quality-forms/{id}/inspections",
 }
 
 func TestOpenAPI_DocumentsEveryRoute(t *testing.T) {

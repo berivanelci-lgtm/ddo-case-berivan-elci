@@ -21,6 +21,7 @@ var auditEntityTypes = map[string]bool{
 	"ncrs":            true,
 	"lines":           true,
 	"downtime_events": true,
+	"quality_forms":   true,
 }
 
 // AuditReader, denetim kayıtlarını okuyan her şeyi temsil eder.

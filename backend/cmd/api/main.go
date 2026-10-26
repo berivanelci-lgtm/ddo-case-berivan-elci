@@ -23,6 +23,8 @@ import (
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/ncrstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/oee"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/oeestore"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/quality"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/qualitystore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/sensor"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/sensorstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
@@ -100,7 +102,9 @@ func run() error {
 	mux.Handle("GET /me", authenticate(httpapi.MeHandler()))
 
 	spcStore := spcstore.New(pool)
-	httpapi.NewChartsAPI(spc.NewService(spcStore), spcStore).Register(mux, authenticate)
+	spcService := spc.NewService(spcStore)
+	httpapi.NewChartsAPI(spcService, spcStore).Register(mux, authenticate)
+	httpapi.NewQualityAPI(quality.NewService(qualitystore.New(pool), spcService)).Register(mux, authenticate)
 
 	httpapi.NewCatalogAPI(catalogstore.New(pool)).Register(mux, authenticate)
 
