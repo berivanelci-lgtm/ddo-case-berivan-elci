@@ -1,24 +1,27 @@
-# HatKontrol - elle deneme koleksiyonu
+# HatKontrol - elle deneme koleksiyonu (tüm uçlar)
 # VS Code "REST Client" eklentisi (humao.rest-client) gerekir.
-# Kullanim: once "GIRIS" bolumundeki istekleri gonder (her istegin ustundeki "Send Request" baglantisi).
-# Token 15 dakika gecerlidir; suresi dolarsa giris isteklerini yeniden gonder.
-# Kodlar ve adlar {{$timestamp}} ile benzersiz olur, istekler tekrar calistirilabilir.
+# Kullanım: önce "GIRIS" bölümündeki istekleri gönder (her isteğin üstündeki "Send Request").
+# Access token 15 dakika geçerlidir; süresi dolarsa giriş ya da yenileme isteğini tekrar gönder.
+# Kodlar ve adlar {{$timestamp}} ile benzersizdir, istekler tekrar çalıştırılabilir.
 
 @baseUrl = http://localhost:8080
 @password = Demo!2026Parola
 
 ###############################################################
-# SAGLIK
+# SAGLIK VE METRIKLER
 ###############################################################
 
-### Saglik kontrolu (veritabani dahil)
+### Sağlık kontrolü (veritabanı dahil)
 GET {{baseUrl}}/health
 
+### Prometheus metrikleri
+GET {{baseUrl}}/metrics
+
 ###############################################################
-# GIRIS (6 rol)
+# GIRIS (6 rol) VE TOKEN YENILEME
 ###############################################################
 
-### Operator
+### Operatör
 # @name loginOperator
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
@@ -28,7 +31,7 @@ Content-Type: application/json
 ###
 @operatorToken = {{loginOperator.response.body.access_token}}
 
-### Hat sefi
+### Hat şefi
 # @name loginSupervisor
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
@@ -38,7 +41,7 @@ Content-Type: application/json
 ###
 @supervisorToken = {{loginSupervisor.response.body.access_token}}
 
-### Kalite muhendisi
+### Kalite mühendisi
 # @name loginQuality
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
@@ -48,7 +51,7 @@ Content-Type: application/json
 ###
 @qualityToken = {{loginQuality.response.body.access_token}}
 
-### Uretim planlama
+### Üretim planlama
 # @name loginPlanner
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
@@ -58,7 +61,7 @@ Content-Type: application/json
 ###
 @plannerToken = {{loginPlanner.response.body.access_token}}
 
-### Bakim
+### Bakım
 # @name loginMaintenance
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
@@ -68,7 +71,7 @@ Content-Type: application/json
 ###
 @maintenanceToken = {{loginMaintenance.response.body.access_token}}
 
-### Fabrika muduru
+### Fabrika müdürü
 # @name loginManager
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
@@ -78,17 +81,29 @@ Content-Type: application/json
 ###
 @managerToken = {{loginManager.response.body.access_token}}
 
+### Token yenileme (refresh token ile) -> 200, yeni çift
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{"refresh_token":"{{loginQuality.response.body.refresh_token}}"}
+
+### Access token ile yenileme denemesi -> 401
+POST {{baseUrl}}/auth/refresh
+Content-Type: application/json
+
+{"refresh_token":"{{qualityToken}}"}
+
 ###############################################################
-# KIMLIK DOGRULAMA VE YETKI HATALARI (beklenen sonuc yaninda)
+# KIMLIK DOGRULAMA VE YETKI HATALARI
 ###############################################################
 
-### Yanlis parola -> 401
+### Yanlış parola -> 401
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
 {"email":"operator@hatkontrol.test","password":"yanlis"}
 
-### Kayitsiz e-posta -> 401 (yanlis parola ile ayni mesaj)
+### Kayıtsız e-posta -> 401 (yanlış parola ile aynı mesaj)
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
@@ -97,11 +112,11 @@ Content-Type: application/json
 ### Token olmadan -> 401
 GET {{baseUrl}}/me
 
-### Token sahibi kim? -> 200
+### Token sahibi -> 200
 GET {{baseUrl}}/me
 Authorization: Bearer {{operatorToken}}
 
-### Operator grafik olusturamaz -> 403
+### Operatör grafik oluşturamaz -> 403
 POST {{baseUrl}}/charts
 Authorization: Bearer {{operatorToken}}
 Content-Type: application/json
@@ -109,10 +124,10 @@ Content-Type: application/json
 {"name":"yetkisiz-{{$timestamp}}","type":"individual"}
 
 ###############################################################
-# SPC KONTROL GRAFIKLERI (T-1)
+# T-1 SPC KONTROL GRAFIKLERI
 ###############################################################
 
-### Bireysel grafik olustur (kalite muhendisi) -> 201
+### Bireysel grafik oluştur (kalite) -> 201
 # @name createChart
 POST {{baseUrl}}/charts
 Authorization: Bearer {{qualityToken}}
@@ -123,7 +138,7 @@ Content-Type: application/json
 ###
 @chartId = {{createChart.response.body.id}}
 
-### X-R grafik olustur, alt grup buyuklugu 3 -> 201
+### X-R grafik, alt grup 3 -> 201
 POST {{baseUrl}}/charts
 Authorization: Bearer {{qualityToken}}
 Content-Type: application/json
@@ -134,33 +149,33 @@ Content-Type: application/json
 GET {{baseUrl}}/charts
 Authorization: Bearer {{operatorToken}}
 
-### Grafik detayi (limitler, son noktalar, son alarmlar)
+### Grafik detayı (limitler, son noktalar, son alarmlar)
 GET {{baseUrl}}/charts/{{chartId}}
 Authorization: Bearer {{operatorToken}}
 
-### Olcum ekle (operator). Limitler 25. olcumde hesaplanir; 25 olcumluk akis icin scripts/demo-spc.ps1
+### Ölçüm ekle (limitler 25. ölçümde hesaplanır; 25 ölçümlük akış için scripts/demo-spc.ps1)
 POST {{baseUrl}}/charts/{{chartId}}/measurements
 Authorization: Bearer {{operatorToken}}
 Content-Type: application/json
 
 {"values":[10.2]}
 
-### Bakim olcum giremez -> 403
+### Bakım ölçüm giremez -> 403
 POST {{baseUrl}}/charts/{{chartId}}/measurements
 Authorization: Bearer {{maintenanceToken}}
 Content-Type: application/json
 
 {"values":[10.2]}
 
-### Limitleri yeniden hesapla (yalniz kalite muhendisi; 25 nokta yoksa 409)
+### Limitleri yeniden hesapla (yalnız kalite; 25 nokta yoksa 409)
 POST {{baseUrl}}/charts/{{chartId}}/limits/recompute
 Authorization: Bearer {{qualityToken}}
 
 ###############################################################
-# KATALOG: MALZEME, URUN, RECETE (planlama / mudur)
+# KATALOG: MALZEME, URUN, RECETE
 ###############################################################
 
-### Malzeme olustur (stok 500) -> 201
+### Malzeme oluştur (stok 500) -> 201
 # @name createMaterial
 POST {{baseUrl}}/materials
 Authorization: Bearer {{plannerToken}}
@@ -171,11 +186,11 @@ Content-Type: application/json
 ###
 @materialId = {{createMaterial.response.body.id}}
 
-### Malzemeleri listele (guncel stoklar)
+### Malzemeleri listele
 GET {{baseUrl}}/materials
 Authorization: Bearer {{operatorToken}}
 
-### Urun ve recete olustur (urun basina 5 birim malzeme) -> 201
+### Ürün ve reçete (ürün başına 5 birim) -> 201
 # @name createProduct
 POST {{baseUrl}}/products
 Authorization: Bearer {{plannerToken}}
@@ -186,88 +201,205 @@ Content-Type: application/json
 ###
 @productId = {{createProduct.response.body.id}}
 
-### Urunleri listele
+### Ürünleri listele
 GET {{baseUrl}}/products
 Authorization: Bearer {{operatorToken}}
 
 ###############################################################
-# IS EMRI VE MALZEME DUSUMU (T-4)
+# T-4 IS EMRI VE MALZEME DUSUMU (Idempotency-Key ile)
 ###############################################################
 
-### Is emri olustur, plan 10 adet -> 201
+### İş emri oluştur, plan 10 (aynı anahtarla tekrar gönderirsen aynı yanıt döner)
 # @name createOrder
 POST {{baseUrl}}/work-orders
 Authorization: Bearer {{plannerToken}}
 Content-Type: application/json
+Idempotency-Key: wo-{{$timestamp}}
 
 {"product_id":{{productId}},"planned_qty":10}
 
 ###
 @orderId = {{createOrder.response.body.id}}
 
-### Is emrini uretime serbest birak
+### Serbest bırak
 POST {{baseUrl}}/work-orders/{{orderId}}/release
 Authorization: Bearer {{plannerToken}}
 
-### Uretim kaydi: 6 saglam, 1 fire, 3 yeniden islem (10 urun baslar, 50 birim malzeme duser)
+### Üretim: 6 sağlam, 1 fire, 3 yeniden işlem (50 birim malzeme düşer)
 POST {{baseUrl}}/work-orders/{{orderId}}/production
 Authorization: Bearer {{operatorToken}}
 Content-Type: application/json
 
 {"good":6,"scrap":1,"rework":3}
 
-### Yeniden islem sonucu: 2 saglam, 1 fire (ek malzeme dusmez)
+### Yeniden işlem sonucu: 2 sağlam, 1 fire
 POST {{baseUrl}}/work-orders/{{orderId}}/rework
 Authorization: Bearer {{qualityToken}}
 Content-Type: application/json
 
 {"good":2,"scrap":1}
 
-### Onaysiz kismi kapanis -> 409 partial_not_confirmed (saglam 8, plan 10)
+### Onaysız kısmi kapanış -> 409 partial_not_confirmed
 POST {{baseUrl}}/work-orders/{{orderId}}/close
 Authorization: Bearer {{supervisorToken}}
 
-### Onayli kismi kapanis -> 200 completed
+### Onaylı kısmi kapanış -> 200 completed
 POST {{baseUrl}}/work-orders/{{orderId}}/close
 Authorization: Bearer {{supervisorToken}}
 Content-Type: application/json
 
 {"allow_partial":true}
 
-### Is emri detayi
+### İş emri detayı
 GET {{baseUrl}}/work-orders/{{orderId}}
 Authorization: Bearer {{operatorToken}}
 
-### Stok dustu mu? (500 - 50 = 450)
-GET {{baseUrl}}/materials
-Authorization: Bearer {{operatorToken}}
-
-### Is emirlerini listele, keyset sayfalama: ilk sayfa
+### İş emirleri, keyset sayfalama (sonraki sayfa için next_before değerini before olarak gönder)
 GET {{baseUrl}}/work-orders?limit=2
 Authorization: Bearer {{operatorToken}}
 
-### Sonraki sayfa: onceki yanittaki next_before degerini yaz
-GET {{baseUrl}}/work-orders?limit=2&before=1
+###############################################################
+# DENETIM KAYDI (yalnız fabrika müdürü)
+###############################################################
+
+### Son denetim kayıtları
+GET {{baseUrl}}/audit-log?limit=5
+Authorization: Bearer {{managerToken}}
+
+### Yalnızca iş emri değişiklikleri
+GET {{baseUrl}}/audit-log?entity_type=work_orders&limit=5
+Authorization: Bearer {{managerToken}}
+
+### Operatör okuyamaz -> 403
+GET {{baseUrl}}/audit-log
 Authorization: Bearer {{operatorToken}}
 
-### Iptal ornegi: uretimden once iptal edilebilir -> 200 cancelled
-# @name createOrder2
-POST {{baseUrl}}/work-orders
-Authorization: Bearer {{plannerToken}}
+###############################################################
+# T-3 / F-7 IZLENEBILIRLIK (veri: scripts/seed-genealogy.sql)
+###############################################################
+
+### Geri izleme: seri numarasından hammaddelere
+GET {{baseUrl}}/traceability/lots/SN-0300000/backward
+Authorization: Bearer {{qualityToken}}
+
+### İleri izleme: hammadde partisinden ürünlere
+GET {{baseUrl}}/traceability/lots/RAW-050000/forward
+Authorization: Bearer {{qualityToken}}
+
+### Geri çağırma raporu
+GET {{baseUrl}}/traceability/lots/RAW-050000/recall
+Authorization: Bearer {{managerToken}}
+
+### Operatör izlenebilirlik okuyamaz -> 403
+GET {{baseUrl}}/traceability/lots/RAW-050000/recall
+Authorization: Bearer {{operatorToken}}
+
+###############################################################
+# F-5 UYGUNSUZLUK (NCR)
+###############################################################
+
+### NCR aç (operatör) -> 201
+# @name createNCR
+POST {{baseUrl}}/ncrs
+Authorization: Bearer {{operatorToken}}
 Content-Type: application/json
 
-{"product_id":{{productId}},"planned_qty":5}
+{"title":"Flansta capak","description":"kontrolde bulundu","severity":"major","work_order_id":{{orderId}}}
 
 ###
-@order2Id = {{createOrder2.response.body.id}}
+@ncrId = {{createNCR.response.body.id}}
 
-### Iptal
-POST {{baseUrl}}/work-orders/{{order2Id}}/cancel
+### İncelemeye almadan kapatma -> 409
+POST {{baseUrl}}/ncrs/{{ncrId}}/close
+Authorization: Bearer {{qualityToken}}
+Content-Type: application/json
+
+{"root_cause":"takim asinmasi","corrective_action":"takim degistirildi"}
+
+### İncelemeye al (kalite) -> 200
+POST {{baseUrl}}/ncrs/{{ncrId}}/investigate
+Authorization: Bearer {{qualityToken}}
+
+### Kök nedensiz kapanış -> 400
+POST {{baseUrl}}/ncrs/{{ncrId}}/close
+Authorization: Bearer {{qualityToken}}
+Content-Type: application/json
+
+{"root_cause":"","corrective_action":"x"}
+
+### Kapat -> 200 closed
+POST {{baseUrl}}/ncrs/{{ncrId}}/close
+Authorization: Bearer {{qualityToken}}
+Content-Type: application/json
+
+{"root_cause":"takim asinmasi","corrective_action":"takim degistirildi"}
+
+### Açık NCR'ler
+GET {{baseUrl}}/ncrs?status=open&limit=10
+Authorization: Bearer {{managerToken}}
+
+###############################################################
+# T-2 / F-2 / F-6 OEE, DURUS NEDENLERI
+###############################################################
+
+### Hat oluştur (ideal çevrim 1 dk) -> 201
+# @name createLine
+POST {{baseUrl}}/lines
 Authorization: Bearer {{plannerToken}}
+Content-Type: application/json
 
-### Iptal edilmis is emrine uretim -> 409 invalid_transition
-POST {{baseUrl}}/work-orders/{{order2Id}}/production
+{"code":"HAT-{{$timestamp}}","name":"Pres hatti","ideal_cycle_ms":60000}
+
+###
+@lineCode = {{createLine.response.body.code}}
+
+### Duruş nedenleri (planlı/plansız)
+GET {{baseUrl}}/downtime-reasons
+Authorization: Bearer {{operatorToken}}
+
+### Planlı mola 10:00-10:30
+POST {{baseUrl}}/lines/{{lineCode}}/downtime
 Authorization: Bearer {{operatorToken}}
 Content-Type: application/json
 
-{"good":1}
+{"reason_code":"BREAK","started_at":"2026-10-20T10:00:00Z","ended_at":"2026-10-20T10:30:00Z"}
+
+### Sayaç (A vardiyası)
+POST {{baseUrl}}/lines/{{lineCode}}/counts
+Authorization: Bearer {{operatorToken}}
+Content-Type: application/json
+
+{"occurred_at":"2026-10-20T08:00:00Z","good":285,"scrap":15}
+
+### OEE raporu (vardiya A/B/C ve gün)
+GET {{baseUrl}}/lines/{{lineCode}}/oee?date=2026-10-20
+Authorization: Bearer {{managerToken}}
+
+### Geç gelen arıza 13:00-14:30 (bakım), sonra OEE raporunu tekrar gönder
+POST {{baseUrl}}/lines/{{lineCode}}/downtime
+Authorization: Bearer {{maintenanceToken}}
+Content-Type: application/json
+
+{"reason_code":"BREAKDOWN","started_at":"2026-10-20T13:00:00Z","ended_at":"2026-10-20T14:30:00Z"}
+
+###############################################################
+# T-5 SENSOR GIRDISI
+###############################################################
+
+### Toplu sensör okuması (COPY ile, aylık partisyona) -> 201
+POST {{baseUrl}}/sensor-readings
+Authorization: Bearer {{maintenanceToken}}
+Content-Type: application/json
+
+{"readings":[
+  {"station_id":1,"recorded_at":"{{$datetime iso8601}}","value":50.1},
+  {"station_id":2,"recorded_at":"{{$datetime iso8601}}","value":49.8},
+  {"station_id":3,"recorded_at":"{{$datetime iso8601}}","value":50.4}
+]}
+
+### Kalite sensör verisi gönderemez -> 403
+POST {{baseUrl}}/sensor-readings
+Authorization: Bearer {{qualityToken}}
+Content-Type: application/json
+
+{"readings":[{"station_id":1,"recorded_at":"{{$datetime iso8601}}","value":50.1}]}
