@@ -20,6 +20,7 @@ import (
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/httpapi"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/idempotency"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/metrics"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/ncrstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spcstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
@@ -103,6 +104,7 @@ func run() error {
 		Register(mux, authenticate)
 	httpapi.NewAuditAPI(audit.NewReader(pool)).Register(mux, authenticate)
 	httpapi.NewTraceabilityAPI(genealogy.NewService(genealogystore.New(pool))).Register(mux, authenticate)
+	httpapi.NewNCRsAPI(ncrstore.New(pool)).Register(mux, authenticate)
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
 		Handler: registry.Middleware(mux), ReadHeaderTimeout: readHeaderTimeout,

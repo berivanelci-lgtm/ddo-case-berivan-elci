@@ -111,7 +111,6 @@ Add-Result "F-1" $(if ($racePassed) { "PASS" } else { "FAIL" }) "work orders and
 Add-Result "F-2" $(if ($racePassed) { "PARTIAL" } else { "FAIL" }) "counters, scrap and rework work; downtime reasons are not implemented"
 Add-Result "F-3" $(if ($spcPassed) { "PARTIAL" } else { "FAIL" }) "measurement entry works through SPC charts; no separate quality form definition"
 Add-Result "F-4" $(if ($spcPassed) { "PASS" } else { "FAIL" }) "control charts and alarms through API and web UI (same script as T-1)"
-Add-Result "F-5" "NOT-DONE" "NCR management is not implemented"
 Add-Result "F-6" "NOT-DONE" "OEE dashboard is not implemented"
 Add-Result "T-2" "NOT-DONE" "OEE with late events is not implemented"
 Add-Result "T-5" "NOT-DONE" "high-volume sensor ingestion is not implemented"
@@ -165,6 +164,25 @@ Add-Result "T-3" $(if ($t3Ok) { "PASS" } else { "FAIL" }) "1M lots: backward $($
 
 $f7Ok = $rec.Result.Status -eq 200 -and $recShip -gt 0 -and $rec.Ms -lt 1000
 Add-Result "F-7" $(if ($f7Ok) { "PASS" } else { "FAIL" }) "recall report RAW-050000: $($rec.Result.Body.affected_serial_count) serials, $recShip shipments, $($rec.Ms) ms"
+# --- F-5: NCR lifecycle (open -> investigating -> closed) ---
+$maintLogin = Invoke-Login "bakim@hatkontrol.test" $Password
+$maintToken = ""
+if ($maintLogin.Status -eq 200) { $maintToken = $maintLogin.Body.access_token }
+$ncrBody = '{"title":"verify burr on flange","description":"found during check","severity":"major"}'
+$closeBody = '{"root_cause":"tool wear","corrective_action":"tool replaced"}'
+
+$ncrMaint = Invoke-Api -Method Post -Path "/ncrs" -Token $maintToken -Body $ncrBody
+$ncrNew = Invoke-Api -Method Post -Path "/ncrs" -Token $operatorToken -Body $ncrBody
+$ncrId = 0
+if ($ncrNew.Body) { $ncrId = $ncrNew.Body.id }
+$ncrOpClose = Invoke-Api -Method Post -Path "/ncrs/$ncrId/close" -Token $operatorToken -Body $closeBody
+$ncrEarly = Invoke-Api -Method Post -Path "/ncrs/$ncrId/close" -Token $qualityToken -Body $closeBody
+$ncrInv = Invoke-Api -Method Post -Path "/ncrs/$ncrId/investigate" -Token $qualityToken
+$ncrNoCause = Invoke-Api -Method Post -Path "/ncrs/$ncrId/close" -Token $qualityToken -Body '{"root_cause":"","corrective_action":"x"}'
+$ncrClosed = Invoke-Api -Method Post -Path "/ncrs/$ncrId/close" -Token $qualityToken -Body $closeBody
+
+$f5Ok = $ncrMaint.Status -eq 403 -and $ncrNew.Status -eq 201 -and $ncrOpClose.Status -eq 403 -and $ncrEarly.Status -eq 409 -and $ncrInv.Status -eq 200 -and $ncrNoCause.Status -eq 400 -and $ncrClosed.Status -eq 200 -and $ncrClosed.Body.status -eq "closed"
+Add-Result "F-5" $(if ($f5Ok) { "PASS" } else { "FAIL" }) "NCR: maintenance 403, operator opens 201, early close 409, close without root cause 400, quality closes 200"
 # --- Report ---
 Write-Host ""
 Write-Host ("{0,-8} {1,-9} {2}" -f "ID", "RESULT", "NOTE")

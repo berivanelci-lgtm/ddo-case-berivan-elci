@@ -18,6 +18,7 @@ var auditEntityTypes = map[string]bool{
 	"products":       true,
 	"work_orders":    true,
 	"spc_limit_sets": true,
+	"ncrs":           true,
 }
 
 // AuditReader, denetim kayıtlarını okuyan her şeyi temsil eder.
@@ -65,7 +66,7 @@ func (a *AuditAPI) list(w http.ResponseWriter, r *http.Request) {
 	entityType := r.URL.Query().Get("entity_type")
 	if entityType != "" && !auditEntityTypes[entityType] {
 		WriteError(w, http.StatusBadRequest, "invalid_entity_type",
-			"entity_type şunlardan biri olmalı: charts, materials, products, work_orders, spc_limit_sets")
+			"entity_type şunlardan biri olmalı: charts, materials, products, work_orders, spc_limit_sets, ncrs")
 		return
 	}
 
