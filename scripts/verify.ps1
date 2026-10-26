@@ -111,7 +111,6 @@ Add-Result "F-1" $(if ($racePassed) { "PASS" } else { "FAIL" }) "work orders and
 Add-Result "F-3" $(if ($spcPassed) { "PARTIAL" } else { "FAIL" }) "measurement entry works through SPC charts; no separate quality form definition"
 Add-Result "F-4" $(if ($spcPassed) { "PASS" } else { "FAIL" }) "control charts and alarms through API and web UI (same script as T-1)"
 
-Add-Result "T-5" "NOT-DONE" "high-volume sensor ingestion is not implemented"
 # --- Audit log: critical changes are recorded with the acting user; only the factory manager can read ---
 $managerLogin = Invoke-Login "mudur@hatkontrol.test" $Password
 $managerToken = ""
@@ -188,6 +187,19 @@ Add-Result "T-2" $(if ($oeePassed) { "PASS" } else { "FAIL" }) "OEE recomputed f
 Add-Result "F-2" $(if ($oeePassed -and $racePassed) { "PASS" } else { "FAIL" }) "counters, scrap, rework (T-4) and line counters with planned/unplanned downtime reasons (T-2)"
 Add-Result "F-6" $(if ($oeePassed) { "PARTIAL" } else { "FAIL" }) "OEE by line, shift and day through the API; no UI dashboard"
 if (-not $oeePassed) { foreach ($line in $oeeRun.Output) { if ($line -match "^FAIL") { Write-Host "  [demo-oee.ps1] $line" -ForegroundColor Yellow } } }
+# --- T-5: high-volume sensor ingestion (smoke check here; full load test: make load) ---
+$now = (Get-Date).ToUniversalTime()
+$items = @()
+for ($i = 0; $i -lt 10; $i++) {
+    $items += '{"station_id":' + (1 + $i) + ',"recorded_at":"' + $now.AddSeconds(-$i).ToString("yyyy-MM-ddTHH:mm:ssZ") + '","value":' + (50 + $i) + '}'
+}
+$sensorBody = '{"readings":[' + ($items -join ",") + ']}'
+$futureBody = '{"readings":[{"station_id":1,"recorded_at":"' + $now.AddHours(2).ToString("yyyy-MM-ddTHH:mm:ssZ") + '","value":1}]}'
+$sensorOk = Invoke-Api -Method Post -Path "/sensor-readings" -Token $maintToken -Body $sensorBody
+$sensorQuality = Invoke-Api -Method Post -Path "/sensor-readings" -Token $qualityToken -Body $sensorBody
+$sensorFuture = Invoke-Api -Method Post -Path "/sensor-readings" -Token $maintToken -Body $futureBody
+$t5Ok = $sensorOk.Status -eq 201 -and $sensorOk.Body.inserted -eq 10 -and $sensorQuality.Status -eq 403 -and $sensorFuture.Status -eq 400
+Add-Result "T-5" $(if ($t5Ok) { "PASS" } else { "FAIL" }) "COPY into monthly partitions: batch of 10 -> 201, quality 403, future 400; load test: make load"
 # --- Report ---
 Write-Host ""
 Write-Host ("{0,-8} {1,-9} {2}" -f "ID", "RESULT", "NOTE")

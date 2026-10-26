@@ -1,0 +1,76 @@
+﻿Pager usage is off.
+DROP TABLE
+docker : NOTICE:  table "sensor_readings_2026_07" does not exis
+t, skipping
+At line:1 char:49
++ ... chive.sql | docker compose exec -T db psql -U hatkontrol 
+-d hatkontro ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (NOTICE:  table .. 
+   .exist, skipping:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+NOTICE:  table "sensor_readings_2026_08" does not exist, skippi
+ng
+ ensure_sensor_partition | ensure_sensor_partition 
+-------------------------+-------------------------
+ sensor_readings_2026_07 | sensor_readings_2026_08
+(1 row)
+
+INSERT 0 1000
+INSERT 0 1000
+
+=== Partitions BEFORE archiving ===
+        partition        |                                  bounds                                  
+-------------------------+--------------------------------------------------------------------------
+ sensor_readings_2026_07 | FOR VALUES FROM ('2026-07-01 00:00:00+00') TO ('2026-08-01 00:00:00+00')
+ sensor_readings_2026_08 | FOR VALUES FROM ('2026-08-01 00:00:00+00') TO ('2026-09-01 00:00:00+00')
+ sensor_readings_2026_10 | FOR VALUES FROM ('2026-10-01 00:00:00+00') TO ('2026-11-01 00:00:00+00')
+(3 rows)
+
+ rows_before_september 
+-----------------------
+                  2000
+(1 row)
+
+
+=== Archive partitions that ended on or before 2026-09-01 ===
+ archive_sensor_partitions 
+---------------------------
+ sensor_readings_2026_07
+ sensor_readings_2026_08
+(2 rows)
+
+
+=== Partitions AFTER archiving ===
+        partition        |                                  bounds                                  
+-------------------------+--------------------------------------------------------------------------
+ sensor_readings_2026_10 | FOR VALUES FROM ('2026-10-01 00:00:00+00') TO ('2026-11-01 00:00:00+00')
+(1 row)
+
+ rows_before_september 
+-----------------------
+                     0
+(1 row)
+
+ archived_july | archived_august 
+---------------+-----------------
+          1000 |            1000
+(1 row)
+
+
+=== Critical query: last hour of one station (partition pruning + index) ===
+                                                                                                    QUERY PLAN                                                                                                    
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.29..165.26 rows=100 width=16) (actual time=0.043..0.171 rows=100 loops=1)
+   Buffers: shared hit=15
+   ->  Index Scan Backward using sensor_readings_2026_10_station_id_recorded_at_idx on sensor_readings_2026_10 sensor_readings  (cost=0.29..927.40 rows=562 width=16) (actual time=0.042..0.158 rows=100 loops=1)
+         Index Cond: ((station_id = 7) AND (recorded_at >= (now() - '01:00:00'::interval)))
+         Buffers: shared hit=15
+ Planning:
+   Buffers: shared hit=67
+ Planning Time: 0.703 ms
+ Execution Time: 0.219 ms
+(9 rows)
+
