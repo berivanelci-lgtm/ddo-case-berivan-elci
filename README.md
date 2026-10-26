@@ -145,8 +145,8 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 | Kritik sorgular için dizin ve `EXPLAIN (ANALYZE)` kanıtı | SPC'de iki dizin (Doğrulama Soruları, 3. soru) ve soy ağacı sorguları (T-3 bölümü) |
 | Append-only denetim tablosu | Tamam (aşağıdaki bölüme bakın) |
 | `Idempotency-Key` | İş emri uçlarında tamam (aşağıdaki bölüme bakın); **SPC ölçüm ucunda yok** |
-| OpenAPI, `/metrics` | **Yapılmadı** |
-| k6 yük testi, kaos betiği | **Yapılmadı** |
+| | OpenAPI, `/metrics` | `/metrics` tamam (Prometheus metin biçimi); **OpenAPI yapılmadı** |
+|| k6 yük testi, kaos betiği | Kaos betiği tamam (`scripts/chaos.ps1`); **k6 yük testi yapılmadı** |
 | `requests.http` (VS Code REST Client) | Eklendi, **ben çalıştırıp denemedim** |
 | Veri üretici (simülatör) servisi | **Yapılmadı** |
 | Frontend | Giriş, grafik listesi, grafik detayı (ölçüm girişi, alarmlar). İş emri, katalog, izlenebilirlik ve diğer modüllerin ekranı yok |
@@ -263,6 +263,30 @@ powershell -ExecutionPolicy Bypass -File .\scripts\demo-stock-race.ps1
 - Aynı anahtar ve aynı gövde: kayıtlı yanıt döner, `Idempotent-Replayed: true` başlığı eklenir, işlem tekrarlanmaz. Aynı anahtar ve farklı gövde: `422 idempotency_key_reused`. Aynı anahtarla eşzamanlı çift istek: ikincisi `409 in_progress`.
 - **Kanıt:** Gerçek sistemde iş emri oluşturma ucuna aynı anahtarla iki istek gönderildi; ikisi de aynı iş emri kimliğini döndürdü ve ikincisinde `Idempotent-Replayed: true` vardı. 422 ve ara katman davranışı birim testlerle kanıtlıdır (`backend/internal/httpapi/idempotent_test.go`).
 - **Sınırlar:** Diğer iş emri uçları aynı kodu kullanır ama gerçek sistemde ayrıca denenmedi; 409 `in_progress` gerçek sistemde denenmedi. Kayıtlı yanıt JSONB'de saklandığı için tekrar yanıtın alan sırası ve boşlukları ilkinden farklı olabilir (anlam aynıdır). SPC ölçüm ucunda yoktur. Eski anahtarlar silinmez (süre aşımı yok).
+## İzleme ve dayanıklılık
+
+**`GET /metrics`** (Prometheus metin biçimi, kimlik doğrulamasız):
+- `hatkontrol_http_requests_total{method,status}`: istek sayacı
+- `hatkontrol_http_request_duration_seconds`: istek süresi histogramı (5 ms ile 5 s arası kovalar)
+- `hatkontrol_uptime_seconds`
+
+Prometheus istemci kütüphanesi yerine metin biçimi elle üretildi (bağımlılık ve Go sürümü uyumu riskini almamak için). Yol bazında etiket yoktur, çünkü Go 1.22'de istek nesnesinde eşleşen yol kalıbı bulunmaz. Gerçek ortamda `/metrics` yalnızca iç ağdan erişilebilir olmalıdır.
+
+**Kaos senaryosu** (`scripts/chaos.ps1`, `make chaos`): çalışan sistemde veritabanını durdurur ve tekrar başlatır.
+
+```
+PASS  before: health is 200
+PASS  before: login is 200
+PASS  during outage: health reports 503 (not a hang, not 200)
+PASS  during outage: login fails with 500 and does not crash the API
+PASS  during outage: backend container keeps running
+PASS  after: health is 200 again within 90 s (took 1.1 s), no restart of backend
+PASS  after: login works again
+
+ALL CHECKS PASSED (recovery 1.1 s)
+```
+
+Backend yeniden başlatılmadan, bağlantı havuzu veritabanı geri geldiğinde kendiliğinden toparlanır.
 
 ## Testler ve kapsama
 
