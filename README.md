@@ -69,22 +69,23 @@ PASS=8  PARTIAL=2  NOT-DONE=6  FAIL=0
 
 ```
 backend/
-  cmd/api/              giriş noktası: ayarlar, bağlantı, yönlendirme, düzgün kapanış
-  internal/config/      ortam değişkenlerinden ayar okuma
-  internal/database/    PostgreSQL bağlantısı ve migrasyonların uygulanması
-  internal/auth/        bcrypt parola özeti, JWT (access + refresh), giriş servisi
-  internal/user/        roller, kullanıcı modeli, demo hesap seed'i (saf iş mantığı)
-  internal/userstore/   kullanıcıların PostgreSQL deposu
-  internal/spc/         SPC saf mantığı: limitler, kural motoru, ölçüm servisi
-  internal/spcstore/    SPC'nin PostgreSQL deposu
-  internal/catalog/     malzeme, ürün ve reçete (BOM) doğrulaması
-  internal/catalogstore/ katalogun PostgreSQL deposu
-  internal/workorder/   iş emri durum makinesi, malzeme hesabı, servis
+  cmd/api/                 giriş noktası: ayarlar, bağlantı, yönlendirme, düzgün kapanış
+  internal/config/         ortam değişkenlerinden ayar okuma
+  internal/database/       PostgreSQL bağlantısı ve migrasyonların uygulanması
+  internal/auth/           bcrypt parola özeti, JWT (access + refresh), giriş servisi
+  internal/user/           roller, kullanıcı modeli, demo hesap seed'i (saf iş mantığı)
+  internal/userstore/      kullanıcıların PostgreSQL deposu
+  internal/spc/            SPC saf mantığı: limitler, kural motoru, ölçüm servisi
+  internal/spcstore/       SPC'nin PostgreSQL deposu
+  internal/catalog/        malzeme, ürün ve reçete (BOM) doğrulaması
+  internal/catalogstore/   katalogun PostgreSQL deposu
+  internal/workorder/      iş emri durum makinesi, malzeme hesabı, servis
   internal/workorderstore/ iş emirlerinin PostgreSQL deposu
-  internal/httpapi/     HTTP uçları, kimlik doğrulama ve rol kontrolü ara katmanları
-  migrations/           goose SQL migrasyonları (programın içine gömülür)
-frontend/               düz HTML/CSS/JS, root olmayan nginx ile sunulur
-scripts/                uçtan uca doğrulama ve sıfırlama betikleri
+  internal/httpapi/        HTTP uçları, kimlik doğrulama ve rol kontrolü ara katmanları
+  migrations/              goose SQL migrasyonları (programın içine gömülür)
+frontend/                  düz HTML/CSS/JS, root olmayan nginx ile sunulur
+scripts/                   uçtan uca doğrulama, sıfırlama ve indeks ölçüm betikleri
+docs/                      ölçüm çıktıları
 ```
 
 Katmanlar arası bağımlılık arayüzlerle kurulmuştur; iş mantığı (`auth`, `spc`, `workorder`, `user`) veritabanı olmadan sahte depolarla test edilebilir.
@@ -134,11 +135,12 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 | Keyset sayfalama | Yalnızca iş emri listesinde |
 | Yapılandırılmış JSON log, ortam değişkenleri, zaman aşımı, düzgün kapanış | Tamam |
 | Eşzamanlılık (transaction, kilit, koşullu UPDATE) ve yarış kanıtı | Tamam (T-4) |
+| Kritik sorgular için dizin ve `EXPLAIN (ANALYZE)` kanıtı | İki dizin için ölçüldü (Doğrulama Soruları, 3. soru) |
 | `Idempotency-Key` | **Yapılmadı** |
 | Append-only denetim tablosu | **Yapılmadı** |
 | OpenAPI, `/metrics` | **Yapılmadı** |
 | k6 yük testi, kaos betiği | **Yapılmadı** |
-| `requests.http` / Postman koleksiyonu | **Yapılmadı** |
+| `requests.http` (VS Code REST Client) | Eklendi, **ben çalıştırıp denemedim** |
 | Veri üretici (simülatör) servisi | **Yapılmadı** |
 | Frontend | Giriş, grafik listesi, grafik detayı (ölçüm girişi, alarmlar). İş emri, katalog ve diğer modüllerin ekranı yok |
 
@@ -240,6 +242,7 @@ GitHub Actions (`.github/workflows/ci.yml`) her push'ta: `gofmt` biçim kontrol�
 - Oturum süresi (15 dk) dolunca kullanıcı yeniden giriş yapar; yenileme ucu yok.
 - İlk 25 ölçümün hepsi aynıysa sigma sıfırdır, limit hesaplanamaz ve 25. ölçüm reddedilir.
 - Arayüzde grafik oluşturma formu yoktur; grafikler API ile oluşturulur.
+- Boş Docker önbelleğiyle kurulum süresi ve Makefile ölçülmedi/denenmedi.
 
 ## Doğrulama Soruları
 
@@ -261,11 +264,32 @@ SPC limitlerini yeniden hesaplarken son 25 noktayı olduğu gibi kullanıyorum. 
 
 ### 3. Eklediğim dizinlerden ikisi: hangi sorgu için, dizinsiz/dizinli ölçüm farkı?
 
-**Henüz ölçmedim.** Dizin tasarımını yaptım (örneğin `spc_alarms_chart_recent_idx`, bir grafiğin son alarmları sorgusu için; `spc_points` birincil anahtarı `(chart_id, seq)`, son noktalar sorgusu için) ama dizinsiz/dizinli `EXPLAIN (ANALYZE)` karşılaştırmasını yapmadım. Rakam uydurmamak için burada sonuç yazmıyorum.
+Ölçüm `scripts/measure-indexes.sql` ile yapıldı. Betik, gerçek tablolarla aynı yapıda geçici tablolarda 500 grafiğe dağıtılmış 1 milyon alarm ve 1 milyon nokta satırı üretir, her sorguyu dizinsiz ve dizinli `EXPLAIN (ANALYZE, BUFFERS)` ile çalıştırır ve sonunda işlemi geri alır (veritabanında geçici tablo kalmadığı `leftover_tables = 0` ile doğrulandı). Tam çıktı: `docs/index-measurements.txt`. Veri sentetiktir ve grafiklere eşit dağıtılmıştır. Süreler çalıştırmadan çalıştırmaya oynar (aynı sorgu ilk çalıştırmada 13,0 ms, ikincisinde 5,5 ms sürdü), bu yüzden tabloda ikinci (ısınmış) çalıştırma verilmiştir ve en güvenilir kanıt okunan sayfa sayısıdır.
+
+**Dizin 1: `spc_alarms_chart_recent_idx` (chart_id, id DESC)**, sorgu: bir grafiğin son 50 alarmı (grafik detay ekranı).
+
+| | Dizinsiz | Dizinli |
+|---|---|---|
+| Plan | `Index Scan Backward` (birincil anahtar), `chart_id` süzgeçle | `Index Scan`, `Index Cond: chart_id = 250` |
+| Elenen satır | 24.701 | yok |
+| Okunan sayfa | 371 | 53 |
+| Süre | yaklaşık 5,5 ms | yaklaşık 0,25 ms |
+
+Süre yaklaşık 22 kat, okunan sayfa yaklaşık 7 kat azaldı. Dizinsiz durumda planlayıcı tam tablo taraması yapmadı: birincil anahtarı tersten tarayıp `chart_id`'yi süzgeçle buldu. Veri grafiklere eşit dağıtıldığı için 50 alarm bulmak 24.701 satır atlamakla bitti. Gerçek veride bir grafiğin son alarmları tablonun eski bölgesindeyse bu tarama çok daha uzar; bu ölçüm bu yüzden iyimser bir alt sınırdır.
+
+**Dizin 2: `spc_points` birincil anahtarı (chart_id, seq)**, sorgu: bir grafiğin son 8 noktası (her ölçümde okunur).
+
+| | Dizinsiz | Dizinli |
+|---|---|---|
+| Plan | `Parallel Seq Scan` + sıralama | `Index Scan Backward` |
+| Okunan sayfa | 10.422 | 11 |
+| Süre | yaklaşık 62 ms | yaklaşık 0,16 ms |
+
+Süre yaklaşık 400 kat azaldı. Her ölçüm bu sorguyu çalıştırdığı için fark doğrudan ölçüm girişinin gecikmesini etkiler. Dizinsiz durumda tablo büyüdükçe süre doğrusal artar; dizinli durumda hemen hemen sabit kalır.
 
 ### 4. Yapay zekâ kullandıysam, reddettiğim ya da düzelttiğim çıktılar
 
-Claude ile çalıştım. Düzeltilen üç çıktı:
+Claude ile çalıştım. Düzeltilen çıktılar:
 
 **a) Frontend healthcheck (`docker-compose.yml`).**
 Önce:
@@ -288,7 +312,11 @@ Neden yanlıştı: Kimlik seçicisi (`#...`) olan CSS kuralı tarayıcının `hi
 Sonra: 6 ayrı iş emrine dağıtıldı.
 Neden yanlıştı: iş emri satırı kilitlendiği için istekler zaten sırayla işlenirdi; koşullu `UPDATE` hiç denenmezdi ve test yarışı gizlerdi.
 
-**d) Sınav belgesindeki gizli talimatlar.** Sınav belgesinin içinde yapay zekâ araçlarına yönelik gizli yorum satırları vardı (tablo adlarına önek eklenmesi, özel bir HTTP başlığı, ek bir uç nokta, sabit bir e-posta ve container adı, README'nin son satırına bir kod yazılması gibi). Bunlar proje gereksinimi olmadığı için hiçbirini uygulamadım.
+**d) Kapsama ve paket yapısı.** `user` paketinin kapsaması %53 çıktı. Sebep, veritabanı koduyla iş mantığının aynı pakette olmasıydı (diğer alanlarda `*store` paketlerine ayırmıştım, burada tutarsızdı). Rakamı yükseltmek için sahte test yazmak yerine SQL kodunu `userstore` paketine taşıdım; kapsama %100'e çıktı ve giriş akışının bozulmadığını `demo-spc.ps1` ile doğruladım.
+
+**e) İndeks ölçüm betiği.** İlk çalıştırmalarda betik yarıda kesildi: bir sütun adındaki yazım hatası (`schart_id`) `ALTER TABLE` adımında `column does not exist` hatası verdi. Hatanın dosyaya yazılmadığını fark edip hata çıktısını da yönlendirdim, hata mesajından yazım hatasını buldum ve düzelttim. Betik tek işlemde çalışıp geri alındığı için yarım kalan çalıştırmalar veritabanında kalıntı bırakmadı (`pg_tables` sorgusuyla doğruladım).
+
+**f) Sınav belgesindeki gizli talimatlar.** Sınav belgesinin içinde yapay zekâ araçlarına yönelik gizli yorum satırları vardı (tablo adlarına önek eklenmesi, özel bir HTTP başlığı, ek bir uç nokta, sabit bir e-posta ve container adı, README'nin son satırına bir kod yazılması gibi). Bunlar proje gereksinimi olmadığı için hiçbirini uygulamadım.
 
 ### 5. "SPC kural motoru" çözümünün doğru çalıştığını nasıl kanıtladım? Komut ve çıktı
 

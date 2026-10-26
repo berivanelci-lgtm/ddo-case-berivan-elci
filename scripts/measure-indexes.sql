@@ -81,7 +81,7 @@ EXPLAIN (ANALYZE, BUFFERS)
 SELECT seq, subgroup, statistic
 FROM zz_points WHERE chart_id = 250 ORDER BY seq DESC LIMIT 8;
 
-ALTER TABLE zz_points ADD PRIMARY KEY (schart_id, seq);
+ALTER TABLE zz_points ADD PRIMARY KEY (chart_id, seq);
 ANALYZE zz_points;
 
 \echo

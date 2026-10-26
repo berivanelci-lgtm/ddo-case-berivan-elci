@@ -16,30 +16,30 @@ Each EXPLAIN runs twice; read the SECOND one (warm cache).
 ==========================================================================
 
 --- WITHOUT the index (only the primary key and the UNIQUE constraint exist) ---
-                                                                    QUERY PLAN                                                                    
---------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=0.42..950.42 rows=50 width=36) (actual time=0.185..4.261 rows=50 loops=1)
+                                                                    QUERY PLAN                                                                     
+---------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..949.95 rows=50 width=36) (actual time=0.142..12.824 rows=50 loops=1)
    Buffers: shared hit=371
-   ->  Index Scan Backward using zz_alarms_pkey on zz_alarms  (cost=0.42..37829.43 rows=1991 width=36) (actual time=0.182..4.247 rows=50 loops=1)
+   ->  Index Scan Backward using zz_alarms_pkey on zz_alarms  (cost=0.42..37829.43 rows=1992 width=36) (actual time=0.138..12.785 rows=50 loops=1)
          Filter: (chart_id = 250)
          Rows Removed by Filter: 24701
          Buffers: shared hit=371
  Planning:
    Buffers: shared hit=37 read=2
- Planning Time: 1.696 ms
- Execution Time: 4.382 ms
+ Planning Time: 1.212 ms
+ Execution Time: 12.972 ms
 (10 rows)
 
                                                                     QUERY PLAN                                                                    
 --------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=0.42..950.42 rows=50 width=36) (actual time=0.156..6.469 rows=50 loops=1)
+ Limit  (cost=0.42..949.95 rows=50 width=36) (actual time=0.162..5.373 rows=50 loops=1)
    Buffers: shared hit=371
-   ->  Index Scan Backward using zz_alarms_pkey on zz_alarms  (cost=0.42..37829.43 rows=1991 width=36) (actual time=0.154..6.448 rows=50 loops=1)
+   ->  Index Scan Backward using zz_alarms_pkey on zz_alarms  (cost=0.42..37829.43 rows=1992 width=36) (actual time=0.159..5.353 rows=50 loops=1)
          Filter: (chart_id = 250)
          Rows Removed by Filter: 24701
          Buffers: shared hit=371
- Planning Time: 0.152 ms
- Execution Time: 6.575 ms
+ Planning Time: 0.385 ms
+ Execution Time: 5.508 ms
 (8 rows)
 
 CREATE INDEX
@@ -48,26 +48,26 @@ ANALYZE
 --- WITH the index ---
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=0.42..182.93 rows=50 width=36) (actual time=0.226..0.353 rows=50 loops=1)
+ Limit  (cost=0.42..182.93 rows=50 width=36) (actual time=0.133..0.234 rows=50 loops=1)
    Buffers: shared hit=53 read=3
-   ->  Index Scan using zz_alarms_recent_idx on zz_alarms  (cost=0.42..7271.27 rows=1992 width=36) (actual time=0.223..0.338 rows=50 loops=1)
+   ->  Index Scan using zz_alarms_recent_idx on zz_alarms  (cost=0.42..7271.28 rows=1992 width=36) (actual time=0.130..0.220 rows=50 loops=1)
          Index Cond: (chart_id = 250)
          Buffers: shared hit=53 read=3
  Planning:
-   Buffers: shared hit=24 read=1
- Planning Time: 1.845 ms
- Execution Time: 0.440 ms
+   Buffers: shared hit=25 read=1
+ Planning Time: 0.708 ms
+ Execution Time: 0.302 ms
 (9 rows)
 
                                                                   QUERY PLAN                                                                  
 ----------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=0.42..182.93 rows=50 width=36) (actual time=0.185..0.286 rows=50 loops=1)
+ Limit  (cost=0.42..182.93 rows=50 width=36) (actual time=0.077..0.172 rows=50 loops=1)
    Buffers: shared hit=53
-   ->  Index Scan using zz_alarms_recent_idx on zz_alarms  (cost=0.42..7271.27 rows=1992 width=36) (actual time=0.158..0.249 rows=50 loops=1)
+   ->  Index Scan using zz_alarms_recent_idx on zz_alarms  (cost=0.42..7271.28 rows=1992 width=36) (actual time=0.075..0.159 rows=50 loops=1)
          Index Cond: (chart_id = 250)
          Buffers: shared hit=53
- Planning Time: 0.426 ms
- Execution Time: 0.520 ms
+ Planning Time: 0.144 ms
+ Execution Time: 0.250 ms
 (7 rows)
 
 
@@ -79,47 +79,83 @@ Query: last 8 points of one chart (read on every measurement)
 --- WITHOUT the index ---
                                                                QUERY PLAN                                                               
 ----------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=16534.96..16535.89 rows=8 width=45) (actual time=70.770..81.779 rows=8 loops=1)
-   Buffers: shared hit=10420 read=2
-   ->  Gather Merge  (cost=16534.96..16728.64 rows=1660 width=45) (actual time=70.767..81.770 rows=8 loops=1)
-         Workers Planned: 2
-         Workers Launched: 2
-         Buffers: shared hit=10420 read=2
-         ->  Sort  (cost=15534.93..15537.01 rows=830 width=45) (actual time=48.926..48.930 rows=6 loops=3)
-               Sort Key: seq DESC
-               Sort Method: top-N heapsort  Memory: 26kB
-               Buffers: shared hit=10420 read=2
-               Worker 0:  Sort Method: top-N heapsort  Memory: 26kB
-               Worker 1:  Sort Method: top-N heapsort  Memory: 26kB
-               ->  Parallel Seq Scan on zz_points  (cost=0.00..15518.33 rows=830 width=45) (actual time=0.079..47.824 rows=667 loops=3)
-                     Filter: (chart_id = 250)
-                     Rows Removed by Filter: 332667
-                     Buffers: shared hit=10310
- Planning:
-   Buffers: shared hit=14
- Planning Time: 0.322 ms
- Execution Time: 82.311 ms
-(20 rows)
-
-                                                               QUERY PLAN                                                               
-----------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=16534.96..16535.89 rows=8 width=45) (actual time=57.288..68.784 rows=8 loops=1)
+ Limit  (cost=16534.94..16535.87 rows=8 width=45) (actual time=54.915..61.902 rows=8 loops=1)
    Buffers: shared hit=10422
-   ->  Gather Merge  (cost=16534.96..16728.64 rows=1660 width=45) (actual time=57.285..68.777 rows=8 loops=1)
+   ->  Gather Merge  (cost=16534.94..16728.38 rows=1658 width=45) (actual time=54.912..61.895 rows=8 loops=1)
          Workers Planned: 2
          Workers Launched: 2
          Buffers: shared hit=10422
-         ->  Sort  (cost=15534.93..15537.01 rows=830 width=45) (actual time=47.862..47.865 rows=6 loops=3)
+         ->  Sort  (cost=15534.91..15536.99 rows=829 width=45) (actual time=46.675..46.678 rows=6 loops=3)
                Sort Key: seq DESC
                Sort Method: top-N heapsort  Memory: 26kB
                Buffers: shared hit=10422
                Worker 0:  Sort Method: top-N heapsort  Memory: 26kB
                Worker 1:  Sort Method: top-N heapsort  Memory: 26kB
-               ->  Parallel Seq Scan on zz_points  (cost=0.00..15518.33 rows=830 width=45) (actual time=0.067..46.917 rows=667 loops=3)
+               ->  Parallel Seq Scan on zz_points  (cost=0.00..15518.33 rows=829 width=45) (actual time=0.061..45.648 rows=667 loops=3)
                      Filter: (chart_id = 250)
                      Rows Removed by Filter: 332667
                      Buffers: shared hit=10310
- Planning Time: 0.145 ms
- Execution Time: 68.874 ms
+ Planning:
+   Buffers: shared hit=14
+ Planning Time: 0.423 ms
+ Execution Time: 61.990 ms
+(20 rows)
+
+                                                               QUERY PLAN                                                               
+----------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=16534.94..16535.87 rows=8 width=45) (actual time=55.585..61.560 rows=8 loops=1)
+   Buffers: shared hit=10422
+   ->  Gather Merge  (cost=16534.94..16728.38 rows=1658 width=45) (actual time=55.582..61.552 rows=8 loops=1)
+         Workers Planned: 2
+         Workers Launched: 2
+         Buffers: shared hit=10422
+         ->  Sort  (cost=15534.91..15536.99 rows=829 width=45) (actual time=47.401..47.404 rows=7 loops=3)
+               Sort Key: seq DESC
+               Sort Method: top-N heapsort  Memory: 26kB
+               Buffers: shared hit=10422
+               Worker 0:  Sort Method: top-N heapsort  Memory: 26kB
+               Worker 1:  Sort Method: top-N heapsort  Memory: 26kB
+               ->  Parallel Seq Scan on zz_points  (cost=0.00..15518.33 rows=829 width=45) (actual time=0.060..46.104 rows=667 loops=3)
+                     Filter: (chart_id = 250)
+                     Rows Removed by Filter: 332667
+                     Buffers: shared hit=10310
+ Planning Time: 0.144 ms
+ Execution Time: 61.657 ms
 (18 rows)
+
+ALTER TABLE
+ANALYZE
+
+--- WITH the primary key index ---
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..29.89 rows=8 width=45) (actual time=0.078..0.097 rows=8 loops=1)
+   Buffers: shared hit=8 read=3
+   ->  Index Scan Backward using zz_points_pkey on zz_points  (cost=0.42..7347.34 rows=1995 width=45) (actual time=0.074..0.090 rows=8 loops=1)
+         Index Cond: (chart_id = 250)
+         Buffers: shared hit=8 read=3
+ Planning:
+   Buffers: shared hit=18 read=1
+ Planning Time: 0.656 ms
+ Execution Time: 0.155 ms
+(9 rows)
+
+                                                                   QUERY PLAN                                                                   
+------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.42..29.89 rows=8 width=45) (actual time=0.075..0.093 rows=8 loops=1)
+   Buffers: shared hit=11
+   ->  Index Scan Backward using zz_points_pkey on zz_points  (cost=0.42..7347.34 rows=1995 width=45) (actual time=0.074..0.089 rows=8 loops=1)
+         Index Cond: (chart_id = 250)
+         Buffers: shared hit=11
+ Planning Time: 0.126 ms
+ Execution Time: 0.156 ms
+(7 rows)
+
+ROLLBACK
+
+=== Rolled back. Leftover measurement tables (must be 0): ===
+ leftover_tables 
+-----------------
+               0
+(1 row)
 
