@@ -42,6 +42,24 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-
+  simulator:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.simulator
+    environment:
+      API_URL: http://backend:8080
+      DEMO_PASSWORD: ${DEMO_PASSWORD}
+      SIM_SEED: ${SIM_SEED:-42}
+      SIM_INTERVAL: ${SIM_INTERVAL:-5s}
+      SIM_STATIONS: ${SIM_STATIONS:-50}
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "find /tmp/heartbeat -mmin -1 | grep -q heartbeat"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
 volumes:
   pgdata:

@@ -200,6 +200,15 @@ $sensorQuality = Invoke-Api -Method Post -Path "/sensor-readings" -Token $qualit
 $sensorFuture = Invoke-Api -Method Post -Path "/sensor-readings" -Token $maintToken -Body $futureBody
 $t5Ok = $sensorOk.Status -eq 201 -and $sensorOk.Body.inserted -eq 10 -and $sensorQuality.Status -eq 403 -and $sensorFuture.Status -eq 400
 Add-Result "T-5" $(if ($t5Ok) { "PASS" } else { "FAIL" }) "COPY into monthly partitions: batch of 10 -> 201, quality 403, future 400; load test: make load"
+# --- Simulator: separate compose service writing live data ---
+$chartList = Invoke-Api -Method Get -Path "/charts" -Token $operatorToken
+$simChart = @($chartList.Body | Where-Object { $_.name -like "SIM-SPC-*" })[0]
+$simPoints = 0
+if ($simChart) {
+    $simDetail = Invoke-Api -Method Get -Path "/charts/$($simChart.id)" -Token $operatorToken
+    $simPoints = @($simDetail.Body.points | Where-Object { $_ }).Count
+}
+Add-Result "SIM" $(if ($simPoints -gt 0) { "PASS" } else { "FAIL" }) "simulator service writes live data (chart $($simChart.name), $simPoints recent points)"
 # --- Report ---
 Write-Host ""
 Write-Host ("{0,-8} {1,-9} {2}" -f "ID", "RESULT", "NOTE")

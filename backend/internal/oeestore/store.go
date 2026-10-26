@@ -121,6 +121,8 @@ func (s *Store) Reasons(ctx context.Context) ([]oee.Reason, error) {
 }
 
 // AddDowntime, bir duruş olayı ekler. Tanımsız neden ErrUnknownReason döner.
+// Aynı olay (hat, neden, başlangıç, bitiş) daha önce kaydedildiyse tekrar eklenmez,
+// mevcut kaydın kimliği döner; böylece tekrar gönderilen olay OEE'de iki kez sayılmaz.
 func (s *Store) AddDowntime(ctx context.Context, lineID int64, reasonCode string, start, end time.Time, userID int64) (int64, error) {
 	tx, err := audit.Begin(ctx, s.pool)
 	if err != nil {
@@ -131,7 +133,15 @@ func (s *Store) AddDowntime(ctx context.Context, lineID int64, reasonCode string
 	var id int64
 	err = tx.QueryRow(ctx, `
 		INSERT INTO downtime_events (line_id, reason_code, started_at, ended_at, recorded_by)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id`, lineID, reasonCode, start, end, userID).Scan(&id)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (line_id, reason_code, started_at, ended_at) DO NOTHING
+		RETURNING id`, lineID, reasonCode, start, end, userID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = tx.QueryRow(ctx, `
+			SELECT id FROM downtime_events
+			WHERE line_id = $1 AND reason_code = $2 AND started_at = $3 AND ended_at = $4`,
+			lineID, reasonCode, start, end).Scan(&id)
+	}
 	if hasCode(err, foreignKeyViolation) {
 		return 0, oee.ErrUnknownReason
 	}
@@ -144,12 +154,19 @@ func (s *Store) AddDowntime(ctx context.Context, lineID int64, reasonCode string
 	return id, nil
 }
 
-// AddCount, bir üretim sayacı ekler.
+// AddCount, bir üretim sayacı ekler. Aynı hat ve aynı andaki sayaç tekrar gelirse
+// eklenmez, mevcut kaydın kimliği döner.
 func (s *Store) AddCount(ctx context.Context, lineID int64, at time.Time, good, scrap, userID int64) (int64, error) {
 	var id int64
 	err := s.pool.QueryRow(ctx, `
 		INSERT INTO production_counts (line_id, occurred_at, good, scrap, recorded_by)
-		VALUES ($1, $2, $3, $4, $5) RETURNING id`, lineID, at, good, scrap, userID).Scan(&id)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (line_id, occurred_at) DO NOTHING
+		RETURNING id`, lineID, at, good, scrap, userID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		err = s.pool.QueryRow(ctx,
+			`SELECT id FROM production_counts WHERE line_id = $1 AND occurred_at = $2`, lineID, at).Scan(&id)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("sayaç kaydedilemedi: %w", err)
 	}

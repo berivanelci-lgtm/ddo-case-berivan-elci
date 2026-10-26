@@ -75,6 +75,10 @@ foreach ($c in @(@("08:00", 150, 5), @("12:00", 135, 10), @("18:00", 380, 20))) 
     if ($r.Status -ne 201) { $ok = $false }
 }
 Check "break and three counters are recorded (201)" $ok
+# Repeated events: the same counter and the same break are sent again; they must not be counted twice.
+$r1 = Invoke-Api -Method Post -Path "/lines/$line/counts" -Token $operator -Body ('{"occurred_at":"' + $day + 'T08:00:00Z","good":150,"scrap":5}')
+$r2 = Invoke-Api -Method Post -Path "/lines/$line/downtime" -Token $operator -Body ('{"reason_code":"BREAK","started_at":"' + $day + 'T10:00:00Z","ended_at":"' + $day + 'T10:30:00Z"}')
+Check "repeated counter and break are accepted (201) and deduplicated (checked by the values below)" ($r1.Status -eq 201 -and $r2.Status -eq 201)
 
 $before = Invoke-Api -Method Get -Path "/lines/$line/oee?date=$day" -Token $manager
 $a = Get-Shift $before "A"; $b = Get-Shift $before "B"

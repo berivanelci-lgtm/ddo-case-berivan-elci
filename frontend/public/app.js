@@ -33,6 +33,15 @@ const SVG_NS = "http://www.w3.org/2000/svg";
 const session = { token: null, user: null };
 let currentDetailId = null;
 let currentChart = null;
+let detailTimer = null;
+
+// Grafik ekranı açıkken 5 saniyede bir yenilenir; simülatörün verisi canlı görünür.
+function stopDetailRefresh() {
+  if (detailTimer) {
+    clearInterval(detailTimer);
+    detailTimer = null;
+  }
+}
 
 const $ = (id) => document.getElementById(id);
 
@@ -114,6 +123,7 @@ function loadSession() {
 }
 
 function endSession(message) {
+    stopDetailRefresh()
   session.token = null;
   session.user = null;
   currentDetailId = null;
@@ -172,6 +182,7 @@ function route() {
 // --- Grafik listesi ---
 
 function showList() {
+    stopDetailRefresh();
   currentDetailId = null;
   currentChart = null;
   setViews("app-view");
@@ -237,6 +248,12 @@ function showDetail(id) {
   $("detail-content").hidden = true;
   setMessage("measure-message", "");
   loadDetail(id, false);
+    stopDetailRefresh();
+  detailTimer = setInterval(() => {
+    if (currentDetailId === id && session.token && !document.hidden) {
+      loadDetail(id, true);
+    }
+  }, 5000);
 }
 
 async function loadDetail(id, silent) {
