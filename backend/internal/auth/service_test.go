@@ -111,3 +111,68 @@ func TestLogin_RepositoryErrorIsNotReportedAsBadCredentials(t *testing.T) {
 		t.Fatal("sunucu hatası, hatalı kimlik bilgisi gibi gösterilmemeli")
 	}
 }
+func (f *fakeFinder) FindByID(_ context.Context, id int64) (user.User, error) {
+	if f.err != nil {
+		return user.User{}, f.err
+	}
+	for _, u := range f.users {
+		if u.ID == id {
+			return u, nil
+		}
+	}
+	return user.User{}, user.ErrNotFound
+}
+
+func TestRefresh_IssuesNewPairWithCurrentRole(t *testing.T) {
+	finder := newFinderWithUser(t)
+	service := newTestService(t, finder)
+	_, pair, err := service.Login(context.Background(), "hatsefi@hatkontrol.test", "dogru-parola")
+	if err != nil {
+		t.Fatalf("beklenmeyen hata: %v", err)
+	}
+
+	// Kullanıcının rolü veritabanında değişti.
+	changed := finder.users["hatsefi@hatkontrol.test"]
+	changed.Role = user.RoleFabrikaMuduru
+	finder.users["hatsefi@hatkontrol.test"] = changed
+
+	u, newPair, err := service.Refresh(context.Background(), pair.RefreshToken)
+	if err != nil {
+		t.Fatalf("geçerli refresh token kabul edilmeli: %v", err)
+	}
+	claims, err := service.tokens.Parse(newPair.AccessToken, AccessToken)
+	if err != nil {
+		t.Fatalf("yeni access token geçerli olmalı: %v", err)
+	}
+	if u.ID != 7 || claims.Role != string(user.RoleFabrikaMuduru) {
+		t.Errorf("yeni token güncel rolü taşımalı, gelen %q", claims.Role)
+	}
+}
+
+func TestRefresh_RejectsAccessTokenAndGarbage(t *testing.T) {
+	service := newTestService(t, newFinderWithUser(t))
+	_, pair, err := service.Login(context.Background(), "hatsefi@hatkontrol.test", "dogru-parola")
+	if err != nil {
+		t.Fatalf("beklenmeyen hata: %v", err)
+	}
+
+	for name, token := range map[string]string{"access token": pair.AccessToken, "bozuk": "a.b.c", "boş": ""} {
+		if _, _, err := service.Refresh(context.Background(), token); !errors.Is(err, ErrInvalidToken) {
+			t.Errorf("%s: ErrInvalidToken beklenirdi, gelen %v", name, err)
+		}
+	}
+}
+
+func TestRefresh_DeletedUserGetsNoToken(t *testing.T) {
+	finder := newFinderWithUser(t)
+	service := newTestService(t, finder)
+	_, pair, err := service.Login(context.Background(), "hatsefi@hatkontrol.test", "dogru-parola")
+	if err != nil {
+		t.Fatalf("beklenmeyen hata: %v", err)
+	}
+	delete(finder.users, "hatsefi@hatkontrol.test")
+
+	if _, _, err := service.Refresh(context.Background(), pair.RefreshToken); !errors.Is(err, ErrInvalidToken) {
+		t.Fatalf("silinen kullanıcı için ErrInvalidToken beklenirdi, gelen %v", err)
+	}
+}

@@ -94,6 +94,7 @@ func run() error {
 
 	mux.HandleFunc("GET /health", httpapi.HealthHandler(pool))
 	mux.HandleFunc("POST /auth/login", httpapi.LoginHandler(authService))
+	mux.HandleFunc("POST /auth/refresh", httpapi.RefreshHandler(authService))
 	authenticate := httpapi.Authenticate(tokens)
 	mux.Handle("GET /me", authenticate(httpapi.MeHandler()))
 

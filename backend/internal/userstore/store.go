@@ -62,3 +62,27 @@ func (s *Store) CreateIfAbsent(ctx context.Context, u user.User) (bool, error) {
 	}
 	return tag.RowsAffected() == 1, nil
 }
+
+// FindByID, kullanıcıyı kimliğiyle bulur.
+func (s *Store) FindByID(ctx context.Context, id int64) (user.User, error) {
+	const query = `
+		SELECT id, email, password_hash, full_name, role, created_at
+		FROM users
+		WHERE id = $1`
+
+	var (
+		u    user.User
+		role string
+	)
+	err := s.pool.QueryRow(ctx, query, id).
+		Scan(&u.ID, &u.Email, &u.PasswordHash, &u.FullName, &role, &u.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return user.User{}, user.ErrNotFound
+	}
+	if err != nil {
+		return user.User{}, fmt.Errorf("kullanıcı sorgulanamadı: %w", err)
+	}
+
+	u.Role = user.Role(role)
+	return u, nil
+}
