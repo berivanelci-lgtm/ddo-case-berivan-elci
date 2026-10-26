@@ -15,6 +15,8 @@ import (
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/catalogstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/config"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/database"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/genealogy"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/genealogystore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/httpapi"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/idempotency"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
@@ -96,6 +98,7 @@ func run() error {
 		WithIdempotency(idempotency.NewStore(pool)).
 		Register(mux, authenticate)
 	httpapi.NewAuditAPI(audit.NewReader(pool)).Register(mux, authenticate)
+	httpapi.NewTraceabilityAPI(genealogy.NewService(genealogystore.New(pool))).Register(mux, authenticate)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           mux,

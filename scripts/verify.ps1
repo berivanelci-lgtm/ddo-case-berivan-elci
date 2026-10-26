@@ -113,9 +113,7 @@ Add-Result "F-3" $(if ($spcPassed) { "PARTIAL" } else { "FAIL" }) "measurement e
 Add-Result "F-4" $(if ($spcPassed) { "PASS" } else { "FAIL" }) "control charts and alarms through API and web UI (same script as T-1)"
 Add-Result "F-5" "NOT-DONE" "NCR management is not implemented"
 Add-Result "F-6" "NOT-DONE" "OEE dashboard is not implemented"
-Add-Result "F-7" "NOT-DONE" "batch and serial traceability reports are not implemented"
 Add-Result "T-2" "NOT-DONE" "OEE with late events is not implemented"
-Add-Result "T-3" "NOT-DONE" "forward and backward genealogy is not implemented"
 Add-Result "T-5" "NOT-DONE" "high-volume sensor ingestion is not implemented"
 # --- Audit log: critical changes are recorded with the acting user; only the factory manager can read ---
 $managerLogin = Invoke-Login "mudur@hatkontrol.test" $Password
@@ -128,6 +126,45 @@ if ($auditManager.Body -and $auditManager.Body.items) { $auditItems = @($auditMa
 $withUser = @($auditItems | Where-Object { $null -ne $_.user_id }).Count
 $auditOk = $auditManager.Status -eq 200 -and $auditItems.Count -gt 0 -and $withUser -eq $auditItems.Count -and $auditOperator.Status -eq 403
 Add-Result "AUDIT" $(if ($auditOk) { "PASS" } else { "FAIL" }) "audit log has records with acting user; operator gets 403, manager reads (append-only enforced by database triggers)"
+# --- T-3 and F-7: genealogy on 1,000,000 lots and recall report ---
+$qualityLogin = Invoke-Login "kalite@hatkontrol.test" $Password
+$qualityToken = ""
+if ($qualityLogin.Status -eq 200) { $qualityToken = $qualityLogin.Body.access_token }
+
+$probe = Invoke-Api -Method Get -Path "/traceability/lots/RAW-050000/recall" -Token $qualityToken
+if ($probe.Status -eq 404) {
+    Write-Host "Genealogy data not found, seeding 1,000,000 lots (about a minute)..."
+    Push-Location (Split-Path -Parent $scriptDir)
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    Get-Content (Join-Path $scriptDir "seed-genealogy.sql") | docker compose exec -T db psql -U hatkontrol -d hatkontrol -q 2>&1 | Out-Null
+    $ErrorActionPreference = $previous
+    Pop-Location
+}
+
+function Measure-Api {
+    param([string]$Path, [string]$Token)
+    [void](Invoke-Api -Method Get -Path $Path -Token $Token)
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $result = Invoke-Api -Method Get -Path $Path -Token $Token
+    $watch.Stop()
+    return @{ Result = $result; Ms = [int]$watch.ElapsedMilliseconds }
+}
+
+$back = Measure-Api "/traceability/lots/SN-0300000/backward" $qualityToken
+$fwd = Measure-Api "/traceability/lots/RAW-050000/forward" $qualityToken
+$rec = Measure-Api "/traceability/lots/RAW-050000/recall" $qualityToken
+$opTrace = Invoke-Api -Method Get -Path "/traceability/lots/RAW-050000/recall" -Token $operatorToken
+
+$backRaw = @($back.Result.Body.lots | Where-Object { $_.kind -eq "raw" }).Count
+$fwdCount = @($fwd.Result.Body.lots | Where-Object { $_ }).Count
+$recShip = @($rec.Result.Body.shipments | Where-Object { $_ }).Count
+
+$t3Ok = $back.Result.Status -eq 200 -and $backRaw -gt 0 -and $fwd.Result.Status -eq 200 -and $fwdCount -gt 0 -and $back.Ms -lt 1000 -and $fwd.Ms -lt 1000 -and $opTrace.Status -eq 403
+Add-Result "T-3" $(if ($t3Ok) { "PASS" } else { "FAIL" }) "1M lots: backward $($back.Ms) ms ($backRaw raw lots), forward $($fwd.Ms) ms ($fwdCount lots), operator 403"
+
+$f7Ok = $rec.Result.Status -eq 200 -and $recShip -gt 0 -and $rec.Ms -lt 1000
+Add-Result "F-7" $(if ($f7Ok) { "PASS" } else { "FAIL" }) "recall report RAW-050000: $($rec.Result.Body.affected_serial_count) serials, $recShip shipments, $($rec.Ms) ms"
 # --- Report ---
 Write-Host ""
 Write-Host ("{0,-8} {1,-9} {2}" -f "ID", "RESULT", "NOTE")
