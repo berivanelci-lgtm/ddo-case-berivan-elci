@@ -28,6 +28,26 @@ type batch struct {
 	Readings []reading `json:"readings"`
 }
 
+type collector struct {
+	mu        sync.Mutex
+	latencies []time.Duration
+	failures  int
+	events    int
+	reasons   map[string]int
+}
+
+func (c *collector) record(elapsed time.Duration, written int, reason string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.latencies = append(c.latencies, elapsed)
+	if reason == "" {
+		c.events += written
+		return
+	}
+	c.failures++
+	c.reasons[reason]++
+}
+
 func main() {
 	baseURL := flag.String("url", "http://localhost:8080", "API adresi")
 	email := flag.String("email", "operator@hatkontrol.test", "giriş e-postası")
@@ -48,16 +68,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	var (
-		mu        sync.Mutex
-		latencies []time.Duration
-		failures  int
-		events    int
-		wg        sync.WaitGroup
-	)
+	results := &collector{reasons: make(map[string]int)}
 	started := time.Now()
 	deadline := started.Add(*duration)
 
+	var wg sync.WaitGroup
 	for station := 1; station <= *stations; station++ {
 		wg.Add(1)
 		go func(station int) {
@@ -79,64 +94,69 @@ func main() {
 						Value:      50 + 0.01*float64(tick) + rng.NormFloat64(),
 					}
 				}
-				body, _ := json.Marshal(batch{Readings: items})
-
-				req, _ := http.NewRequest(http.MethodPost, *baseURL+"/sensor-readings", bytes.NewReader(body))
-				req.Header.Set("Content-Type", "application/json")
-				req.Header.Set("Authorization", "Bearer "+token)
-
-				begin := time.Now()
-				resp, err := client.Do(req)
-				elapsed := time.Since(begin)
-				ok := err == nil && resp.StatusCode == http.StatusCreated
-				if resp != nil {
-					_, _ = io.Copy(io.Discard, resp.Body)
-					resp.Body.Close()
-				}
-
-				mu.Lock()
-				latencies = append(latencies, elapsed)
-				if ok {
-					events += len(items)
-				} else {
-					failures++
-				}
-				mu.Unlock()
+				elapsed, reason := send(client, *baseURL, token, batch{Readings: items})
+				results.record(elapsed, len(items), reason)
 			}
 		}(station)
 	}
 	wg.Wait()
 	total := time.Since(started)
 
-	if len(latencies) == 0 {
+	report(results, total, *stations, *rate)
+	if results.failures > 0 {
+		os.Exit(1)
+	}
+}
+
+// send, bir toplu isteği gönderir; başarısızsa nedenini döner.
+func send(client *http.Client, baseURL, token string, payload batch) (time.Duration, string) {
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest(http.MethodPost, baseURL+"/sensor-readings", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	begin := time.Now()
+	resp, err := client.Do(req)
+	elapsed := time.Since(begin)
+	if err != nil {
+		return elapsed, "transport: " + err.Error()
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		return elapsed, fmt.Sprintf("HTTP %d", resp.StatusCode)
+	}
+	return elapsed, ""
+}
+
+func report(c *collector, total time.Duration, stations, rate int) {
+	if len(c.latencies) == 0 {
 		fmt.Fprintln(os.Stderr, "hiç istek gönderilmedi")
 		os.Exit(1)
 	}
-	sort.Slice(latencies, func(i, j int) bool { return latencies[i] < latencies[j] })
+	sort.Slice(c.latencies, func(i, j int) bool { return c.latencies[i] < c.latencies[j] })
 	percentile := func(p float64) time.Duration {
-		index := int(math.Ceil(p*float64(len(latencies)))) - 1
+		index := int(math.Ceil(p*float64(len(c.latencies)))) - 1
 		if index < 0 {
 			index = 0
 		}
-		return latencies[index]
+		return c.latencies[index].Round(100 * time.Microsecond)
 	}
-	errorRate := 100 * float64(failures) / float64(len(latencies))
 
-	fmt.Println("| Ölçüm | Değer |")
+	fmt.Println("| Olcum | Deger |")
 	fmt.Println("|---|---|")
-	fmt.Printf("| İstasyon × olay/sn (hedef) | %d × %d = %d olay/sn |\n", *stations, *rate, *stations**rate)
-	fmt.Printf("| Süre | %s |\n", total.Round(time.Second))
-	fmt.Printf("| İstek (her biri %d okuma) | %d |\n", *rate, len(latencies))
-	fmt.Printf("| Yazılan olay | %d |\n", events)
-	fmt.Printf("| Gerçekleşen hız | %.0f olay/sn |\n", float64(events)/total.Seconds())
-	fmt.Printf("| Hata oranı | %.2f %% (%d istek) |\n", errorRate, failures)
-	fmt.Printf("| p50 | %s |\n", percentile(0.50).Round(time.Microsecond*100))
-	fmt.Printf("| p95 | %s |\n", percentile(0.95).Round(time.Microsecond*100))
-	fmt.Printf("| p99 | %s |\n", percentile(0.99).Round(time.Microsecond*100))
-	fmt.Printf("| En yüksek | %s |\n", latencies[len(latencies)-1].Round(time.Microsecond*100))
-
-	if failures > 0 {
-		os.Exit(1)
+	fmt.Printf("| Hedef | %d istasyon x %d olay/sn = %d olay/sn |\n", stations, rate, stations*rate)
+	fmt.Printf("| Sure | %s |\n", total.Round(time.Second))
+	fmt.Printf("| Istek (her biri %d okuma) | %d |\n", rate, len(c.latencies))
+	fmt.Printf("| Yazilan olay | %d |\n", c.events)
+	fmt.Printf("| Gerceklesen hiz | %.0f olay/sn |\n", float64(c.events)/total.Seconds())
+	fmt.Printf("| Hata orani | %.2f %% (%d istek) |\n", 100*float64(c.failures)/float64(len(c.latencies)), c.failures)
+	fmt.Printf("| p50 | %s |\n", percentile(0.50))
+	fmt.Printf("| p95 | %s |\n", percentile(0.95))
+	fmt.Printf("| p99 | %s |\n", percentile(0.99))
+	fmt.Printf("| En yuksek | %s |\n", c.latencies[len(c.latencies)-1].Round(100*time.Microsecond))
+	for reason, count := range c.reasons {
+		fmt.Printf("| Hata nedeni: %s | %d |\n", reason, count)
 	}
 }
 
