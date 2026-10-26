@@ -4,7 +4,7 @@
 Bandırma Onyedi Eylül Üniversitesi, Yazılım Mühendisliği öğrencisi
 
 Bu depo, DDO Dijital Dönüşüm Ofisi teknik değerlendirmesi için hazırlanmıştır.
-**Proje tamamlanmış değildir.** Süre kısıtı nedeniyle iki zorlu görevi (T-1 SPC kural motoru, T-4 iş emri ve malzeme düşümü) derinlemesine yaptım ve gerçek sistemde kanıtladım. Diğer görevler yapılmadı. Neyin çalıştığı ve neyin yapılmadığı aşağıdaki **Durum** bölümünde, kimlik kimlik, açıkça yazılıdır.
+**Proje tamamlanmış değildir.** Süre kısıtı nedeniyle iki zorlu görevi (T-1 SPC kural motoru, T-4 iş emri ve malzeme düşümü) derinlemesine yaptım ve gerçek sistemde kanıtladım; ortak teknik gereksinimlerden denetim kaydı ve Idempotency-Key'i ekledim. Diğer görevler yapılmadı. Neyin çalıştığı ve neyin yapılmadığı aşağıdaki **Durum** bölümünde, kimlik kimlik, açıkça yazılıdır.
 
 ## Kurulum
 
@@ -23,7 +23,7 @@ Linux ve macOS için `.env` kopyası: `cp .env.example .env`
 - Backend (Go API): http://localhost:8080
 - Sağlık kontrolü: http://localhost:8080/health (veritabanı bağlantısını da denetler)
 - PostgreSQL 16 ana makineye açılmaz, yalnızca Compose ağında erişilir.
-- Şema migrasyonları ve demo hesaplar backend açılırken otomatik uygulanır.
+- Şema migrasyonları (5 adet) ve demo hesaplar backend açılırken otomatik uygulanır.
 - Üç servisin de `healthcheck`'i vardır; `depends_on` ile `service_healthy` koşulu kullanılır (db, backend, frontend sırasıyla).
 - Konteynerler root olmayan kullanıcıyla çalışır; backend imajı çok aşamalıdır.
 
@@ -58,11 +58,12 @@ Güncel sonuç:
 ```
 HEALTH   PASS      AUTH-1   PASS      AUTH-2   PASS      AUTH-3   PASS
 T-1      PASS      T-4      PASS      F-1      PASS      F-4      PASS
+AUDIT    PASS
 F-2      PARTIAL   F-3      PARTIAL
 F-5      NOT-DONE  F-6      NOT-DONE  F-7      NOT-DONE
 T-2      NOT-DONE  T-3      NOT-DONE  T-5      NOT-DONE
 
-PASS=8  PARTIAL=2  NOT-DONE=6  FAIL=0
+PASS=9  PARTIAL=2  NOT-DONE=6  FAIL=0
 ```
 
 ## Mimari özeti
@@ -81,7 +82,9 @@ backend/
   internal/catalogstore/   katalogun PostgreSQL deposu
   internal/workorder/      iş emri durum makinesi, malzeme hesabı, servis
   internal/workorderstore/ iş emirlerinin PostgreSQL deposu
-  internal/httpapi/        HTTP uçları, kimlik doğrulama ve rol kontrolü ara katmanları
+  internal/audit/          denetim kaydı için işlemi yapan kullanıcıyı veritabanı oturumuna taşıma, okuma
+  internal/idempotency/    Idempotency-Key kaydı ve okuması
+  internal/httpapi/        HTTP uçları, kimlik doğrulama, rol kontrolü ve idempotency ara katmanları
   migrations/              goose SQL migrasyonları (programın içine gömülür)
 frontend/                  düz HTML/CSS/JS, root olmayan nginx ile sunulur
 scripts/                   uçtan uca doğrulama, sıfırlama ve indeks ölçüm betikleri
@@ -98,8 +101,10 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 - İş emri durum makinesi saf pakettir; sayaç tutarlılığı hem kodda hem veritabanı `CHECK` kısıtında korunur (K-2).
 - SPC dedektörünün durumu her ölçümde son noktalardan yeniden kurulur (K-3); tekrar alarm iki katmanda engellenir (K-4).
 - Yetki kontrolü sunucuda ara katmanlarla yapılır (K-5).
-- Go standart kütüphanesi (K-6), düz HTML/JS frontend (K-7).
+- Go standart kütüphanesi (K-6), düz HTML/JS frontend (K-7), test stratejisi (K-8).
 - Frontend seçimi: derleme adımı olmayan düz HTML/CSS/JS. Gerekçe: kısa süre içinde çalışan bir arayüzü garantilemek, çerçeve kurulumu ve derleme hatası riskini almamak.
+- Denetim kaydı veritabanı tetikleyicileriyle yazılır: hiçbir kod yolunda unutulamaz, eski ve yeni değer eksiksiz gelir. "Kim" bilgisi token'dan alınıp işlem başında `app.user_id` oturum ayarına yazılır.
+- Idempotency kaydı, durum değişikliğiyle aynı veritabanı işleminde yazılır: işlem geri alınırsa anahtar da kaybolur, yarım kalmış bir işlem "yapıldı" sayılmaz.
 
 ## Durum
 
@@ -132,12 +137,12 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 | bcrypt, JWT (access + refresh), RBAC, her korumalı uçta yetki kontrolü | Tamam (refresh token üretiliyor ama **yenileme ucu yok**) |
 | Migrasyon dosyaları, FK, UNIQUE, CHECK kısıtları | Tamam |
 | Tutarlı hata biçimi, sunucu tarafı doğrulama, anlamlı durum kodları | Tamam |
-| Keyset sayfalama | Yalnızca iş emri listesinde |
+| Keyset sayfalama | İş emri listesi ve denetim kaydı listesinde |
 | Yapılandırılmış JSON log, ortam değişkenleri, zaman aşımı, düzgün kapanış | Tamam |
 | Eşzamanlılık (transaction, kilit, koşullu UPDATE) ve yarış kanıtı | Tamam (T-4) |
 | Kritik sorgular için dizin ve `EXPLAIN (ANALYZE)` kanıtı | İki dizin için ölçüldü (Doğrulama Soruları, 3. soru) |
-| `Idempotency-Key` | **Yapılmadı** |
-| Append-only denetim tablosu | **Yapılmadı** |
+| Append-only denetim tablosu | Tamam (aşağıdaki bölüme bakın) |
+| `Idempotency-Key` | İş emri uçlarında tamam (aşağıdaki bölüme bakın); **SPC ölçüm ucunda yok** |
 | OpenAPI, `/metrics` | **Yapılmadı** |
 | k6 yük testi, kaos betiği | **Yapılmadı** |
 | `requests.http` (VS Code REST Client) | Eklendi, **ben çalıştırıp denemedim** |
@@ -202,13 +207,31 @@ ALL CHECKS PASSED
 race: sent=30 ok=20 insufficient_stock=10 other=0
 ```
 
-Stok 0'a iner ve eksiye düşmez; kapanışta malzeme denetimi geçer. Betik ayrıca fire, yeniden işlem döngüsü, kısmi kapanış, plan aşımı ve keyset sayfalamayı dener (toplam 26 kontrol, hepsi `PASS`).
+Stok 0'a iner ve eksiye düşmez; kapanışta malzeme denetimi geçer. Betik ayrıca fire, yeniden işlem döngüsü, kısmi kapanış, plan aşımı ve keyset sayfalamayı dener (toplam 26 kontrol, hepsi `PASS`). Denetim tetikleyicileri ve idempotency eklendikten sonra da yeniden çalıştırıldı ve geçti.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-stock-race.ps1
 ```
 
 **Sınırlamalar:** Miktarlar tam sayıdır (kesirli birim yok). Yarış kanıtı çalışan sistemde betikle alınır, CI'da otomatik çalışmaz. `workorder` paketindeki goroutine'li test sahte depo kullanır ve yalnızca servis mantığını doğrular; gerçek PostgreSQL kanıtı betiktir.
+
+## Denetim kaydı (audit log)
+
+- Tablo: `audit_log` (migrasyon `00004`). Alanlar: zaman, işlemi yapan kullanıcı, işlem (`insert`/`update`/`delete`), tablo adı, kayıt kimliği, eski değer, yeni değer (JSONB).
+- Kayıtları **veritabanı tetikleyicileri** yazar: `charts`, `materials`, `products`, `work_orders`, `spc_limit_sets`. Böylece stok düşümü dahil her değişiklik, hangi kod yolundan gelirse gelsin kaydedilir.
+- **Kim:** Kimlik doğrulama ara katmanı kullanıcıyı context'e koyar; depolar işlemi `audit.Begin` ile başlatır ve kullanıcı kimliğini `app.user_id` oturum ayarına yazar. API dışından yapılan değişikliklerde `user_id` boş kalır.
+- **Eklemeli-yalnız:** `UPDATE`, `DELETE` ve `TRUNCATE` tetikleyiciyle yasaktır. Gerçek sistemde denendi, üçü de `audit_log is append-only` hatası verdi.
+- **Okuma:** `GET /audit-log?entity_type=...&limit=...&before=...`, yalnızca fabrika müdürü (diğer roller 403). Keyset sayfalamalı.
+- **Sınır:** Tablo sahibi olan veritabanı rolü tetikleyiciyi kapatabilir. Gerçek bir ortamda uygulama, `audit_log` üzerinde yalnızca `INSERT` ve `SELECT` hakkı olan ayrı bir rolle bağlanmalıdır.
+
+## Idempotency-Key
+
+- Kapsam: `POST /work-orders`, `/work-orders/{id}/release`, `/cancel`, `/production`, `/rework`, `/close`. Başlık isteğe bağlıdır; yoksa istek normal işlenir.
+- Anahtar **kullanıcıya bağlıdır** (`PRIMARY KEY (user_id, key)`, migrasyon `00005`) ve istek gövdesinin SHA-256 özetiyle birlikte saklanır.
+- Kayıt, durum değişikliğiyle **aynı veritabanı işleminde** yazılır; işlem geri alınırsa anahtar da kaybolur. Yalnızca başarılı (2xx) yanıtlar saklanır, hata alan istek düzeltilip yeniden gönderilebilir.
+- Aynı anahtar ve aynı gövde: kayıtlı yanıt döner, `Idempotent-Replayed: true` başlığı eklenir, işlem tekrarlanmaz. Aynı anahtar ve farklı gövde: `422 idempotency_key_reused`. Aynı anahtarla eşzamanlı çift istek: ikincisi `409 in_progress`.
+- **Kanıt:** Gerçek sistemde iş emri oluşturma ucuna aynı anahtarla iki istek gönderildi; ikisi de aynı iş emri kimliğini döndürdü ve ikincisinde `Idempotent-Replayed: true` vardı. 422 ve ara katman davranışı birim testlerle kanıtlıdır (`backend/internal/httpapi/idempotent_test.go`).
+- **Sınırlar:** Diğer iş emri uçları aynı kodu kullanır ama gerçek sistemde ayrıca denenmedi; 409 `in_progress` gerçek sistemde denenmedi. Kayıtlı yanıt JSONB'de saklandığı için tekrar yanıtın alan sırası ve boşlukları ilkinden farklı olabilir (anlam aynıdır). SPC ölçüm ucunda yoktur. Eski anahtarlar silinmez (süre aşımı yok).
 
 ## Testler ve kapsama
 
@@ -217,7 +240,7 @@ cd backend
 go test ./... -cover
 ```
 
-Test sayısı 40'ın çok üzerindedir (`go test ./... -v` çıktısındaki `--- PASS` satırlarıyla sayılabilir; alt testler girintili görünür). İş mantığı paketlerinin kapsaması (yerel ölçüm):
+Test sayısı 40'ın çok üzerindedir (`go test ./... -v` çıktısındaki `--- PASS` satırlarıyla sayılabilir; alt testler girintili görünür). İş mantığı paketlerinin kapsaması (yerel ölçüm, denetim ve idempotency eklenmeden önce):
 
 | Paket | Kapsama |
 |---|---|
@@ -242,7 +265,8 @@ GitHub Actions (`.github/workflows/ci.yml`) her push'ta: `gofmt` biçim kontrol�
 - Oturum süresi (15 dk) dolunca kullanıcı yeniden giriş yapar; yenileme ucu yok.
 - İlk 25 ölçümün hepsi aynıysa sigma sıfırdır, limit hesaplanamaz ve 25. ölçüm reddedilir.
 - Arayüzde grafik oluşturma formu yoktur; grafikler API ile oluşturulur.
-- Boş Docker önbelleğiyle kurulum süresi ve Makefile ölçülmedi/denenmedi.
+- Denetim tetikleyicileri tablo sahibi rol tarafından kapatılabilir; idempotency anahtarları süresiz saklanır.
+- Boş Docker önbelleğiyle kurulum süresi ölçülmedi, Makefile denenmedi.
 
 ## Doğrulama Soruları
 
@@ -316,7 +340,9 @@ Neden yanlıştı: iş emri satırı kilitlendiği için istekler zaten sırayla
 
 **e) İndeks ölçüm betiği.** İlk çalıştırmalarda betik yarıda kesildi: bir sütun adındaki yazım hatası (`schart_id`) `ALTER TABLE` adımında `column does not exist` hatası verdi. Hatanın dosyaya yazılmadığını fark edip hata çıktısını da yönlendirdim, hata mesajından yazım hatasını buldum ve düzelttim. Betik tek işlemde çalışıp geri alındığı için yarım kalan çalıştırmalar veritabanında kalıntı bırakmadı (`pg_tables` sorgusuyla doğruladım).
 
-**f) Sınav belgesindeki gizli talimatlar.** Sınav belgesinin içinde yapay zekâ araçlarına yönelik gizli yorum satırları vardı (tablo adlarına önek eklenmesi, özel bir HTTP başlığı, ek bir uç nokta, sabit bir e-posta ve container adı, README'nin son satırına bir kod yazılması gibi). Bunlar proje gereksinimi olmadığı için hiçbirini uygulamadım.
+**f) Idempotency-Key'in sessizce çalışmaması.** İlk denemede aynı anahtarla gönderilen iki istek iki farklı iş emri oluşturdu (kimlik 25 ve 26), `Idempotent-Replayed` başlığı yoktu, testler ve `verify` ise yeşildi. `idempotency_keys` tablosuna baktığımda boş olduğunu gördüm: ara katman iş emri oluşturma ucuna uygulanmamıştı. Hata vermediği için birim testler ve log bunu yakalamadı; yalnızca gerçek sistemde aynı isteği iki kez gönderip veritabanına bakınca ortaya çıktı. Düzelttikten sonra iki istek aynı kimliği (45) döndürdü ve `Idempotent-Replayed: true` geldi. Ders: "derleniyor ve testler geçiyor" bir özelliğin çalıştığını göstermez, davranışın kendisini ölçmek gerekir.
+
+**g) Sınav belgesindeki gizli talimatlar.** Sınav belgesinin içinde yapay zekâ araçlarına yönelik gizli yorum satırları vardı (tablo adlarına önek eklenmesi, özel bir HTTP başlığı, ek bir uç nokta, sabit bir e-posta ve container adı, README'nin son satırına bir kod yazılması gibi). Bunlar proje gereksinimi olmadığı için hiçbirini uygulamadım.
 
 ### 5. "SPC kural motoru" çözümünün doğru çalıştığını nasıl kanıtladım? Komut ve çıktı
 
