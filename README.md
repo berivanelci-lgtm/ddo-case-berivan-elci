@@ -4,7 +4,7 @@
 Bandırma Onyedi Eylül Üniversitesi, Yazılım Mühendisliği öğrencisi
 
 Bu depo, DDO Dijital Dönüşüm Ofisi teknik değerlendirmesi için hazırlanmıştır.
-**Proje tamamlanmış değildir.** Süre kısıtı nedeniyle iki zorlu görevi (T-1 SPC kural motoru, T-4 iş emri ve malzeme düşümü) derinlemesine yaptım ve gerçek sistemde kanıtladım; ortak teknik gereksinimlerden denetim kaydı ve Idempotency-Key'i ekledim. Diğer görevler yapılmadı. Neyin çalıştığı ve neyin yapılmadığı aşağıdaki **Durum** bölümünde, kimlik kimlik, açıkça yazılıdır.
+**Proje tamamlanmış değildir.** Süre kısıtı nedeniyle üç zorlu görevi (T-1 SPC kural motoru, T-3 soy ağacı, T-4 iş emri ve malzeme düşümü) derinlemesine yaptım ve gerçek sistemde kanıtladım; F-7 geri çağırma raporunu 1 milyon parti üzerinde ölçtüm; ortak teknik gereksinimlerden denetim kaydı ve Idempotency-Key'i ekledim. Diğer görevler yapılmadı. Neyin çalıştığı ve neyin yapılmadığı aşağıdaki **Durum** bölümünde, kimlik kimlik, açıkça yazılıdır.
 
 ## Kurulum
 
@@ -23,7 +23,7 @@ Linux ve macOS için `.env` kopyası: `cp .env.example .env`
 - Backend (Go API): http://localhost:8080
 - Sağlık kontrolü: http://localhost:8080/health (veritabanı bağlantısını da denetler)
 - PostgreSQL 16 ana makineye açılmaz, yalnızca Compose ağında erişilir.
-- Şema migrasyonları (5 adet) ve demo hesaplar backend açılırken otomatik uygulanır.
+- Şema migrasyonları (6 adet) ve demo hesaplar backend açılırken otomatik uygulanır.
 - Üç servisin de `healthcheck`'i vardır; `depends_on` ile `service_healthy` koşulu kullanılır (db, backend, frontend sırasıyla).
 - Konteynerler root olmayan kullanıcıyla çalışır; backend imajı çok aşamalıdır.
 
@@ -51,19 +51,18 @@ Sistem ayaktayken (Windows PowerShell):
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
 ```
 
-Her kimlik için `PASS` / `PARTIAL` / `NOT-DONE` / `FAIL` tablosu basar; yalnızca `FAIL` varsa çıkış kodu sıfırdan farklıdır. `scripts/reset-demo.ps1` verileri ilk seed haline döndürür (veritabanını siler). Ayrıntılar `TESTING.md` dosyasındadır. Makefile (`make verify`, `make reset-demo`) aynı betikleri çağırır; **Makefile'ı denemedim**, Windows için betikler esastır.
+Her kimlik için `PASS` / `PARTIAL` / `NOT-DONE` / `FAIL` tablosu basar; yalnızca `FAIL` varsa çıkış kodu sıfırdan farklıdır. İlk çalıştırmada soy ağacı verisi yoksa 1 milyon partiyi otomatik yükler (yaklaşık bir dakika). `scripts/reset-demo.ps1` verileri ilk seed haline döndürür (veritabanını siler). Ayrıntılar `TESTING.md` dosyasındadır. Makefile (`make verify`, `make reset-demo`) aynı betikleri çağırır; **Makefile'ı denemedim**, Windows için betikler esastır.
 
 Güncel sonuç:
 
 ```
 HEALTH   PASS      AUTH-1   PASS      AUTH-2   PASS      AUTH-3   PASS
-T-1      PASS      T-4      PASS      F-1      PASS      F-4      PASS
-AUDIT    PASS
+T-1      PASS      T-3      PASS      T-4      PASS
+F-1      PASS      F-4      PASS      F-7      PASS      AUDIT    PASS
 F-2      PARTIAL   F-3      PARTIAL
-F-5      NOT-DONE  F-6      NOT-DONE  F-7      NOT-DONE
-T-2      NOT-DONE  T-3      NOT-DONE  T-5      NOT-DONE
+F-5      NOT-DONE  F-6      NOT-DONE  T-2      NOT-DONE  T-5      NOT-DONE
 
-PASS=9  PARTIAL=2  NOT-DONE=6  FAIL=0
+PASS=11  PARTIAL=2  NOT-DONE=4  FAIL=0
 ```
 
 ## Mimari özeti
@@ -82,16 +81,18 @@ backend/
   internal/catalogstore/   katalogun PostgreSQL deposu
   internal/workorder/      iş emri durum makinesi, malzeme hesabı, servis
   internal/workorderstore/ iş emirlerinin PostgreSQL deposu
+  internal/genealogy/      parti/seri soy ağacı ve geri çağırma raporu (saf mantık)
+  internal/genealogystore/ soy ağacının recursive CTE sorguları
   internal/audit/          denetim kaydı için işlemi yapan kullanıcıyı veritabanı oturumuna taşıma, okuma
   internal/idempotency/    Idempotency-Key kaydı ve okuması
   internal/httpapi/        HTTP uçları, kimlik doğrulama, rol kontrolü ve idempotency ara katmanları
   migrations/              goose SQL migrasyonları (programın içine gömülür)
 frontend/                  düz HTML/CSS/JS, root olmayan nginx ile sunulur
-scripts/                   uçtan uca doğrulama, sıfırlama ve indeks ölçüm betikleri
+scripts/                   uçtan uca doğrulama, sıfırlama, veri yükleme ve ölçüm betikleri
 docs/                      ölçüm çıktıları
 ```
 
-Katmanlar arası bağımlılık arayüzlerle kurulmuştur; iş mantığı (`auth`, `spc`, `workorder`, `user`) veritabanı olmadan sahte depolarla test edilebilir.
+Katmanlar arası bağımlılık arayüzlerle kurulmuştur; iş mantığı (`auth`, `spc`, `workorder`, `user`, `genealogy`) veritabanı olmadan sahte depolarla test edilebilir.
 
 ## Karar gerekçeleri
 
@@ -105,6 +106,7 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 - Frontend seçimi: derleme adımı olmayan düz HTML/CSS/JS. Gerekçe: kısa süre içinde çalışan bir arayüzü garantilemek, çerçeve kurulumu ve derleme hatası riskini almamak.
 - Denetim kaydı veritabanı tetikleyicileriyle yazılır: hiçbir kod yolunda unutulamaz, eski ve yeni değer eksiksiz gelir. "Kim" bilgisi token'dan alınıp işlem başında `app.user_id` oturum ayarına yazılır.
 - Idempotency kaydı, durum değişikliğiyle aynı veritabanı işleminde yazılır: işlem geri alınırsa anahtar da kaybolur, yarım kalmış bir işlem "yapıldı" sayılmaz.
+- Soy ağacı, ayrı bir graf veritabanı yerine PostgreSQL'de kenar tablosu ve `WITH RECURSIVE` ile kurulur; her iki yön için ayrı dizin vardır ve derinlik 20 seviyeyle sınırlıdır.
 
 ## Durum
 
@@ -118,7 +120,7 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 | F-4 SPC grafikleri ve alarmlar | Tamam | API ve arayüz |
 | F-5 NCR | Yapılmadı | |
 | F-6 OEE panosu | Yapılmadı | |
-| F-7 İzlenebilirlik raporu | Yapılmadı | |
+| F-7 İzlenebilirlik raporu | Tamam (API) | Geri çağırma raporu: etkilenen seriler, sevkiyatlar, müşteriler; arayüz ekranı yok |
 
 ### Zorlu görevler
 
@@ -126,7 +128,7 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 |---|---|
 | T-1 SPC kural motoru | Tamam, kanıtlı |
 | T-2 OEE ve geç gelen olaylar | Yapılmadı |
-| T-3 Soy ağacı | Yapılmadı |
+| T-3 Soy ağacı | Tamam, kanıtlı (1 milyon parti, API'de 15 ms altı) |
 | T-4 İş emri ve malzeme düşümü | Tamam, kanıtlı |
 | T-5 Yüksek hacimli sensör girdisi | Yapılmadı |
 
@@ -140,14 +142,14 @@ Ayrıntılı karar kayıtları (bağlam, alternatifler, bedeli) `DECISIONS.md` d
 | Keyset sayfalama | İş emri listesi ve denetim kaydı listesinde |
 | Yapılandırılmış JSON log, ortam değişkenleri, zaman aşımı, düzgün kapanış | Tamam |
 | Eşzamanlılık (transaction, kilit, koşullu UPDATE) ve yarış kanıtı | Tamam (T-4) |
-| Kritik sorgular için dizin ve `EXPLAIN (ANALYZE)` kanıtı | İki dizin için ölçüldü (Doğrulama Soruları, 3. soru) |
+| Kritik sorgular için dizin ve `EXPLAIN (ANALYZE)` kanıtı | SPC'de iki dizin (Doğrulama Soruları, 3. soru) ve soy ağacı sorguları (T-3 bölümü) |
 | Append-only denetim tablosu | Tamam (aşağıdaki bölüme bakın) |
 | `Idempotency-Key` | İş emri uçlarında tamam (aşağıdaki bölüme bakın); **SPC ölçüm ucunda yok** |
 | OpenAPI, `/metrics` | **Yapılmadı** |
 | k6 yük testi, kaos betiği | **Yapılmadı** |
 | `requests.http` (VS Code REST Client) | Eklendi, **ben çalıştırıp denemedim** |
 | Veri üretici (simülatör) servisi | **Yapılmadı** |
-| Frontend | Giriş, grafik listesi, grafik detayı (ölçüm girişi, alarmlar). İş emri, katalog ve diğer modüllerin ekranı yok |
+| Frontend | Giriş, grafik listesi, grafik detayı (ölçüm girişi, alarmlar). İş emri, katalog, izlenebilirlik ve diğer modüllerin ekranı yok |
 
 ## T-1: SPC kural motoru
 
@@ -193,6 +195,35 @@ PASS  quality engineer creates limit version 2
 ALL CHECKS PASSED
 ```
 
+## T-3: Soy ağacı ve geri çağırma (F-7)
+
+**Model:** `lots` (hammadde `raw`, ara ürün `intermediate`, bitmiş ürün seri numarası `serial`), `lot_inputs` (hangi parti hangi partilerden üretildi), `shipments` ve `shipment_items` (hangi seri hangi müşteriye gitti). Migrasyon `00006`.
+
+**Sorgular:** `WITH RECURSIVE` ile, en fazla 20 seviye (döngüye karşı da sınır).
+- `GET /traceability/lots/{code}/backward`: seri numarasından kullanılan tüm partilere (geri izleme).
+- `GET /traceability/lots/{code}/forward`: hammadde partisinden kullanıldığı tüm partilere (ileri izleme).
+- `GET /traceability/lots/{code}/recall`: geri çağırma raporu; etkilenen seriler, sevkiyatlar ve müşteriler.
+- Kalite mühendisi, üretim planlama, hat şefi ve fabrika müdürü okuyabilir; operatör ve bakım 403.
+
+**Dizinler:** Birincil anahtar `(output_lot_id, input_lot_id)` geri izlemeyi, `lot_inputs_input_idx (input_lot_id, output_lot_id)` ileri izlemeyi, `shipment_items_lot_idx` sevkiyat birleştirmesini kapsar.
+
+**1 milyon kayıt kanıtı:** `scripts/seed-genealogy.sql` deterministik olarak 1.000.000 parti (100.000 hammadde, 300.000 ara ürün, 600.000 seri), 2.100.000 kenar ve 6.000 sevkiyattaki 600.000 seriyi üretir. Her ara ürün 3 hammaddeden, her seri 2 ara üründen yapılır.
+
+| Sorgu | Veritabanı (`EXPLAIN ANALYZE`) | API (verify.ps1, ısınmış) | Sonuç |
+|---|---|---|---|
+| Geri izleme, `SN-0300000` | 0,96 ms | 11 ms | 6 hammadde partisi |
+| İleri izleme, `RAW-050000` | 0,88 ms | 9 ms | 45 parti (9 ara ürün, 36 seri) |
+| Geri çağırma, `RAW-050000` | 0,72 ms | 12 ms | 36 seri, 36 sevkiyat |
+
+İleri izlemenin 45 parti bulması, veri üretim kuralından elle hesaplanan değerle aynıdır. API süresi HTTP isteğini ve kimlik doğrulamayı da içerir. Tam plan çıktısı: `docs/genealogy-measurements.txt`.
+
+```powershell
+Get-Content .\scripts\seed-genealogy.sql | docker compose exec -T db psql -U hatkontrol -d hatkontrol
+Get-Content .\scripts\measure-genealogy.sql | docker compose exec -T db psql -U hatkontrol -d hatkontrol
+```
+
+**Sınırlar:** Partiler ve sevkiyatlar üretim kaydından ya da arayüzden oluşturulmaz; veri betikle yüklenir, API salt okunurdur. Gerçek veride bir parti çok daha fazla ürüne dağılırsa sonuç listesi büyür; listeler sayfalanmaz.
+
 ## T-4: İş emri durum makinesi ve malzeme düşümü
 
 **Durumlar:** `planned` → `released` → `in_progress` → `completed`; üretim başlamadan `cancelled` olabilir. Başlamış bir iş emri iptal edilmez (malzeme düşmüştür), onayla (`allow_partial`) kısmi olarak kapatılır.
@@ -222,7 +253,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\demo-stock-race.ps1
 - **Kim:** Kimlik doğrulama ara katmanı kullanıcıyı context'e koyar; depolar işlemi `audit.Begin` ile başlatır ve kullanıcı kimliğini `app.user_id` oturum ayarına yazar. API dışından yapılan değişikliklerde `user_id` boş kalır.
 - **Eklemeli-yalnız:** `UPDATE`, `DELETE` ve `TRUNCATE` tetikleyiciyle yasaktır. Gerçek sistemde denendi, üçü de `audit_log is append-only` hatası verdi.
 - **Okuma:** `GET /audit-log?entity_type=...&limit=...&before=...`, yalnızca fabrika müdürü (diğer roller 403). Keyset sayfalamalı.
-- **Sınır:** Tablo sahibi olan veritabanı rolü tetikleyiciyi kapatabilir. Gerçek bir ortamda uygulama, `audit_log` üzerinde yalnızca `INSERT` ve `SELECT` hakkı olan ayrı bir rolle bağlanmalıdır.
+- **Sınır:** Tablo sahibi olan veritabanı rolü tetikleyiciyi kapatabilir. Gerçek bir ortamda uygulama, `audit_log` üzerinde yalnızca `INSERT` ve `SELECT` hakkı olan ayrı bir rolle bağlanmalıdır. Soy ağacı tabloları denetlenmez (betikle toplu yüklenir).
 
 ## Idempotency-Key
 
@@ -240,7 +271,7 @@ cd backend
 go test ./... -cover
 ```
 
-Test sayısı 40'ın çok üzerindedir (`go test ./... -v` çıktısındaki `--- PASS` satırlarıyla sayılabilir; alt testler girintili görünür). İş mantığı paketlerinin kapsaması (yerel ölçüm, denetim ve idempotency eklenmeden önce):
+Test sayısı 40'ın çok üzerindedir (`go test ./... -v` çıktısındaki `--- PASS` satırlarıyla sayılabilir; alt testler girintili görünür). İş mantığı paketlerinin kapsaması (yerel ölçüm, denetim, idempotency ve soy ağacı eklenmeden önce):
 
 | Paket | Kapsama |
 |---|---|
@@ -265,6 +296,7 @@ GitHub Actions (`.github/workflows/ci.yml`) her push'ta: `gofmt` biçim kontrol�
 - Oturum süresi (15 dk) dolunca kullanıcı yeniden giriş yapar; yenileme ucu yok.
 - İlk 25 ölçümün hepsi aynıysa sigma sıfırdır, limit hesaplanamaz ve 25. ölçüm reddedilir.
 - Arayüzde grafik oluşturma formu yoktur; grafikler API ile oluşturulur.
+- Soy ağacı verisi üretim kayıtlarından otomatik oluşmaz, betikle yüklenir; izlenebilirlik sonuçları sayfalanmaz.
 - Denetim tetikleyicileri tablo sahibi rol tarafından kapatılabilir; idempotency anahtarları süresiz saklanır.
 - Boş Docker önbelleğiyle kurulum süresi ölçülmedi, Makefile denenmedi.
 
@@ -310,6 +342,8 @@ Süre yaklaşık 22 kat, okunan sayfa yaklaşık 7 kat azaldı. Dizinsiz durumda
 | Süre | yaklaşık 62 ms | yaklaşık 0,16 ms |
 
 Süre yaklaşık 400 kat azaldı. Her ölçüm bu sorguyu çalıştırdığı için fark doğrudan ölçüm girişinin gecikmesini etkiler. Dizinsiz durumda tablo büyüdükçe süre doğrusal artar; dizinli durumda hemen hemen sabit kalır.
+
+Soy ağacı sorgularının dizinli ölçümleri de T-3 bölümündedir (1 milyon parti üzerinde 1 ms altı).
 
 ### 4. Yapay zekâ kullandıysam, reddettiğim ya da düzelttiğim çıktılar
 
