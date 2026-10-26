@@ -3,6 +3,7 @@ package workorderstore
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -11,12 +12,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/audit"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/idempotency"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/workorder"
 )
 
 const (
 	foreignKeyViolation = "23503"
 	orderColumns        = `id, product_id, planned_qty, status, started_qty, good_qty, scrap_qty, rework_pending`
+
+	statusOK      = 200
+	statusCreated = 201
 )
 
 // Store, workorder.Store ve workorder.Repository arayüzlerini PostgreSQL ile gerçekler.
@@ -40,8 +45,47 @@ type querier interface {
 	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 }
 
+// orderBody, iş emri yanıtının JSON biçimidir. httpapi.orderResponse ile aynı alanları taşır;
+// idempotency kaydındaki yanıt, normal yanıtla birebir aynı olmalıdır.
+type orderBody struct {
+	ID            int64  `json:"id"`
+	ProductID     int64  `json:"product_id"`
+	PlannedQty    int64  `json:"planned_qty"`
+	Status        string `json:"status"`
+	StartedQty    int64  `json:"started_qty"`
+	GoodQty       int64  `json:"good_qty"`
+	ScrapQty      int64  `json:"scrap_qty"`
+	ReworkPending int64  `json:"rework_pending"`
+}
+
+func toOrderBody(o workorder.WorkOrder) orderBody {
+	return orderBody{
+		ID:            o.ID,
+		ProductID:     o.ProductID,
+		PlannedQty:    o.PlannedQty,
+		Status:        string(o.Status),
+		StartedQty:    o.StartedQty,
+		GoodQty:       o.GoodQty,
+		ScrapQty:      o.ScrapQty,
+		ReworkPending: o.ReworkPending,
+	}
+}
+
+// recordIdempotency, context'te anahtar varsa yanıtı aynı transaction içinde kaydeder.
+func recordIdempotency(ctx context.Context, q idempotency.Querier, status int, order workorder.WorkOrder) error {
+	pending, ok := idempotency.PendingFrom(ctx)
+	if !ok {
+		return nil
+	}
+	body, err := json.Marshal(toOrderBody(order))
+	if err != nil {
+		return fmt.Errorf("yanıt kodlanamadı: %w", err)
+	}
+	return idempotency.Save(ctx, q, pending.UserID, pending.Key, pending.RequestHash, status, body)
+}
+
 // WithOrderLock, iş emrinin satırını kilitleyip fn'i tek bir veritabanı işlemi içinde çalıştırır.
-// fn hata dönerse işlem geri alınır: malzeme düşümü, kayıtlar ve durum değişikliği birlikte iptal olur.
+// fn hata dönerse işlem geri alınır: malzeme düşümü, kayıtlar, durum ve idempotency kaydı birlikte iptal olur.
 func (s *Store) WithOrderLock(ctx context.Context, orderID int64, fn func(workorder.Tx) error) error {
 	tx, err := audit.Begin(ctx, s.pool)
 	if err != nil {
@@ -55,7 +99,11 @@ func (s *Store) WithOrderLock(ctx context.Context, orderID int64, fn func(workor
 		return err
 	}
 
-	if err := fn(&orderTx{q: tx, order: order}); err != nil {
+	ot := &orderTx{q: tx, order: order}
+	if err := fn(ot); err != nil {
+		return err
+	}
+	if err := recordIdempotency(ctx, tx, statusOK, ot.finalOrder()); err != nil {
 		return err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -64,7 +112,7 @@ func (s *Store) WithOrderLock(ctx context.Context, orderID int64, fn func(workor
 	return nil
 }
 
-// Create, planlanmış yeni bir iş emri oluşturur.
+// Create, planlanmış yeni bir iş emri oluşturur. Idempotency anahtarı varsa aynı işlemde kaydeder.
 func (s *Store) Create(ctx context.Context, productID, plannedQty, createdBy int64) (workorder.WorkOrder, error) {
 	order, err := workorder.New(productID, plannedQty)
 	if err != nil {
@@ -91,6 +139,9 @@ func (s *Store) Create(ctx context.Context, productID, plannedQty, createdBy int
 		return workorder.WorkOrder{}, fmt.Errorf("iş emri oluşturulamadı: %w", err)
 	}
 
+	if err := recordIdempotency(ctx, tx, statusCreated, order); err != nil {
+		return workorder.WorkOrder{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return workorder.WorkOrder{}, fmt.Errorf("işlem onaylanamadı: %w", err)
 	}
@@ -136,9 +187,18 @@ func (s *Store) List(ctx context.Context, before int64, limit int) ([]workorder.
 type orderTx struct {
 	q     querier
 	order workorder.WorkOrder
+	saved *workorder.WorkOrder
 }
 
 var _ workorder.Tx = (*orderTx)(nil)
+
+// finalOrder, işlem sonunda iş emrinin son hâlini döner.
+func (t *orderTx) finalOrder() workorder.WorkOrder {
+	if t.saved != nil {
+		return *t.saved
+	}
+	return t.order
+}
 
 func (t *orderTx) Order() workorder.WorkOrder { return t.order }
 
@@ -184,6 +244,7 @@ func (t *orderTx) Save(ctx context.Context, w workorder.WorkOrder) error {
 	if tag.RowsAffected() != 1 {
 		return workorder.ErrOrderNotFound
 	}
+	t.saved = &w
 	return nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/idempotency"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/workorder"
 )
@@ -29,6 +30,21 @@ type WorkOrderService interface {
 type WorkOrdersAPI struct {
 	service WorkOrderService
 	repo    workorder.Repository
+	idem    IdempotencyStore
+}
+
+// WithIdempotency, kritik POST uçlarını Idempotency-Key desteğiyle sarar.
+func (a *WorkOrdersAPI) WithIdempotency(store IdempotencyStore) *WorkOrdersAPI {
+	a.idem = store
+	return a
+}
+
+// idempotent, store verilmişse handler'ı Idempotent ara katmanıyla sarar.
+func (a *WorkOrdersAPI) idempotent(h http.HandlerFunc) http.HandlerFunc {
+	if a.idem == nil {
+		return h
+	}
+	return Idempotent(a.idem, h)
 }
 
 // NewWorkOrdersAPI, yeni bir WorkOrdersAPI oluşturur.
@@ -307,6 +323,8 @@ func writeOrderError(w http.ResponseWriter, err error) {
 		WriteError(w, http.StatusConflict, "partial_not_confirmed", err.Error())
 	case errors.Is(err, workorder.ErrEmptyBOM), errors.Is(err, workorder.ErrInvalidBOM):
 		WriteError(w, http.StatusUnprocessableEntity, "invalid_bom", err.Error())
+	case errors.Is(err, idempotency.ErrInProgress):
+		WriteError(w, http.StatusConflict, "in_progress", "aynı Idempotency-Key ile bir istek zaten işleniyor")
 	default:
 		slog.Error("iş emri işlemi başarısız", "error", err)
 		WriteError(w, http.StatusInternalServerError, "internal_error", "beklenmeyen bir hata oluştu")

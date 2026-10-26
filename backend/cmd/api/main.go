@@ -16,6 +16,7 @@ import (
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/config"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/database"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/httpapi"
+	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/idempotency"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spc"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/spcstore"
 	"github.com/berivanelci-lgtm/ddo-case-berivan-elci/backend/internal/user"
@@ -91,7 +92,9 @@ func run() error {
 	httpapi.NewCatalogAPI(catalogstore.New(pool)).Register(mux, authenticate)
 
 	orderStore := workorderstore.New(pool)
-	httpapi.NewWorkOrdersAPI(workorder.NewService(orderStore), orderStore).Register(mux, authenticate)
+	httpapi.NewWorkOrdersAPI(workorder.NewService(orderStore), orderStore).
+		WithIdempotency(idempotency.NewStore(pool)).
+		Register(mux, authenticate)
 	httpapi.NewAuditAPI(audit.NewReader(pool)).Register(mux, authenticate)
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
