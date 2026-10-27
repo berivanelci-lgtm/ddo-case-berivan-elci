@@ -28,7 +28,11 @@ Tüm hesapların parolası: `Demo!2026Parola` (`.env` içindeki `DEMO_PASSWORD`)
 
 ## 3. Tek komutla doğrulama
 
-```powershell
+```bash
+make verify
+# make yoksa (yalnızca Docker gerekir):
+docker compose --profile verify run --rm verify
+# Windows'ta doğrudan:
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
 ```
 
@@ -45,8 +49,11 @@ Son alınan sonuç: `PASS=18 PARTIAL=0 NOT-DONE=0 FAIL=0` (HEALTH, AUTH-1/2/3, A
 
 ## 4. Verileri sıfırlama
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\reset-demo.ps1
+```bash
+make reset-demo
+# make yoksa:
+docker compose --profile verify down -v
+docker compose up --build -d --wait
 ```
 
 **Dikkat:** Veritabanındaki tüm veriyi siler. Demo hesaplar backend açılırken, simülatör grafiği ve hattı simülatör açılırken yeniden oluşur. Sıfırlamadan sonra `verify` aynı sonucu verir.

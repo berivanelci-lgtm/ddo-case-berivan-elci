@@ -46,13 +46,17 @@ Bu değerler yalnızca demo içindir, gerçek bir ortamda değiştirilmelidir.
 
 ## Hızlı doğrulama
 
-Sistem ayaktayken (Windows PowerShell):
+Yalnızca Docker gerekir, işletim sisteminden bağımsızdır:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
+```bash
+make verify
+# make yoksa aynısı:
+docker compose --profile verify run --rm verify
 ```
 
-Her kimlik için `PASS` / `PARTIAL` / `NOT-DONE` / `FAIL` tablosu basar; yalnızca `FAIL` varsa çıkış kodu sıfırdan farklıdır. İlk çalıştırmada soy ağacı verisi yoksa 1 milyon partiyi otomatik yükler (yaklaşık bir dakika). `scripts/reset-demo.ps1` verileri ilk seed haline döndürür (veritabanını siler). Ayrıntılar ve elle deneme senaryoları `TESTING.md` dosyasındadır. Makefile (`make verify`, `make reset-demo`, `make chaos`, `make load`) aynı betikleri çağırır; **Makefile'ı denemedim**, Windows için betikler esastır.
+Bu komut `scripts/verify.ps1` betiğini resmî PowerShell konteynerinde, compose ağı içinden çalıştırır; soy ağacı verisi (1 milyon parti) yoksa önce ayrı bir servis yükler. Windows'ta aynı betik doğrudan da çalıştırılabilir: `powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1`. Her kimlik için `PASS` / `FAIL` tablosu basar, hata varsa çıkış kodu sıfırdan farklıdır. `make reset-demo` veritabanını silip sistemi ilk seed hâliyle yeniden kurar. Ayrıntılar `TESTING.md` dosyasındadır.
+
+Konteyner yolu (`docker compose --profile verify run --rm verify`) ve Windows yolu ikisi de `PASS=18` verdi. `make` komutunun kendisini Windows makinemde `make` kurulu olmadığı için çalıştıramadım; `make verify` yalnızca yukarıdaki compose komutunu çağırır.**Makefile'ı denemedim**, Windows için betikler esastır.
 
 Güncel sonuç:
 
@@ -373,7 +377,7 @@ GitHub Actions (`.github/workflows/ci.yml`) her push'ta: `gofmt` biçim kontrol�
 
 ## Bilinen sınırlamalar
 
-- Boş Docker önbelleğiyle 5 dakikalık kurulum süresi ölçülmedi; Makefile denenmedi.
+- Boş Docker önbelleğiyle 5 dakikalık kurulum süresi ölçülmedi. `make` komutu Windows'ta denenmedi; çağırdığı compose komutları denendi. `make chaos` Linux/macOS'ta `pwsh` ister.
 - SPC limitlerini yeniden hesaplamak alarm veren noktaları dışlamaz (soru 2). X̄-R grafiğinde kurallar yalnızca X̄ serisine uygulanır.
 - İlk 25 ölçümün hepsi aynıysa sigma sıfırdır, limit hesaplanamaz.
 - Refresh token yenilenince eskisi geçersiz olmaz (iptal listesi yok); süresi dolana kadar kullanılabilir. Arayüz token'ı otomatik yenilemez, 15 dakika sonra yeniden giriş ister.
