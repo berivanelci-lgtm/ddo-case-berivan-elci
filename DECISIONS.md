@@ -81,3 +81,64 @@ Her kayıtta bağlam, karar, düşünülen alternatifler ve kararın bedeli yaz�
 **Alternatifler:** Testcontainers ile Go entegrasyon testleri (kurulum süresi ve CI karmaşıklığı), `golangci-lint` (görmediğim kural setiyle CI'ı kırma riski).
 
 **Bedeli:** Veritabanı katmanı (`*store` paketleri) birim testle değil betikle kapsanır, bu yüzden paket bazında kapsama oranları düşük görünür. Betikler CI'da otomatik çalışmaz, elle çalıştırılır.
+
+## K-9: OEE saklanmaz, her sorguda olaylardan hesaplanır
+
+**Bağlam:** Duruş olayları 30 dakika geç gelebilir; geçmiş vardiyanın OEE değeri o anda doğru olmalıdır.
+
+**Alternatifler:**
+1. Vardiya sonunda OEE'yi hesaplayıp tabloya yazmak, geç olayda yeniden hesap işi tetiklemek.
+2. Olay geldikçe artımlı sayaçları güncellemek.
+3. OEE'yi saklamamak, her sorguda o güne ait olaylardan yeniden hesaplamak.
+
+**Karar:** 3. Hesap saf bir fonksiyondur (`internal/oee`), aynı olaylar hangi sırayla gelirse gelsin aynı sonucu verir. Geç olay yazıldığı anda sonuç düzelir, ayrı bir yeniden hesap işine ve tutarsız ara duruma gerek kalmaz.
+
+**Bedeli:** Her sorguda bir günün olayları okunur. Bir hat için günde birkaç bin olayda sorun değildir; çok uzun dönemli raporlar için önceden hesaplanmış özetler gerekir.
+
+## K-10: Tekrar gelen olaylar veritabanında tekilleştirilir
+
+**Bağlam:** Simülatör ve gerçek cihazlar aynı olayı tekrar gönderebilir; sayaç iki kez sayılırsa OEE yanlış olur.
+
+**Karar:** Hat sayacında `(line_id, occurred_at)`, duruşta `(line_id, reason_code, started_at, ended_at)` benzersizdir; `INSERT ... ON CONFLICT DO NOTHING` ile tekrar yutulur ve mevcut kaydın kimliği döner.
+
+**Bedeli:** Aynı anda gelen iki gerçek sayaç kaydı tek kayıt sayılır; gerçek bir sistemde olaylar cihazdan gelen bir olay kimliğiyle tekilleştirilmelidir.
+
+## K-11: Soy ağacı PostgreSQL'de kenar tablosu ve recursive CTE ile
+
+**Alternatifler:** Ayrı bir graf veritabanı; her parti için tüm atalarını tutan düzleştirilmiş tablo (closure table); kenar tablosu ve `WITH RECURSIVE`.
+
+**Karar:** Kenar tablosu ve `WITH RECURSIVE`, iki yön için ayrı dizin, 20 seviye sınırı. Ek bir altyapı gerektirmez; 1 milyon partide sorgular 1 ms'nin altında kaldı.
+
+**Bedeli:** Çok derin ya da çok geniş ağaçlarda sorgu süresi büyür; o durumda closure table düşünülmelidir.
+
+## K-12: Sensör verisi aylık partisyonlu tablo ve COPY
+
+**Alternatifler:** Tek tablo ve satır satır `INSERT`; zaman serisi veritabanı (TimescaleDB); yerel partisyon ve `COPY`.
+
+**Karar:** Aylık `RANGE` partisyonu ve toplu `COPY`. Eski veri, partisyonu ayırıp arşiv şemasına taşıyarak saniyeler içinde arşivlenir; sorgular partisyon budamayla yalnızca ilgili ayı tarar. Ek bir eklenti gerektirmez.
+
+**Bedeli:** Partisyonları oluşturan ve arşivleyen fonksiyonları kendimiz yönetiyoruz. İlk yük testinde partisyon oluşturma sırasında bir yarış görüldü ve düzeltildi (README, soru 4g).
+
+## K-13: Denetim kaydı veritabanı tetikleyicileriyle
+
+**Alternatifler:** Her depoda uygulama koduyla kayıt yazmak; tetikleyiciyle yazmak.
+
+**Karar:** Tetikleyici. Stok düşümü dahil hiçbir değişiklik unutulamaz, eski ve yeni değer eksiksiz gelir. "Kim" bilgisi işlem başında `app.user_id` oturum ayarına yazılır. Tablo `UPDATE`, `DELETE` ve `TRUNCATE`'e kapalıdır.
+
+**Bedeli:** Tablo sahibi rol tetikleyiciyi kapatabilir; gerçek ortamda uygulama ayrı ve kısıtlı bir rolle bağlanmalıdır.
+
+## K-14: Idempotency kaydı iş işlemiyle aynı transaction'da
+
+**Alternatif:** Önce işlemi yapıp sonra anahtarı ayrı işlemde kaydetmek.
+
+**Karar:** Anahtar ve yanıt, durum değişikliğiyle aynı işlemde yazılır. İşlem geri alınırsa anahtar da kaybolur; yarım kalmış bir işlem "yapıldı" sayılmaz, sunucu çökse bile tekrar istek doğru davranır.
+
+**Bedeli:** Her depo metodunun idempotency kaydını bilmesi gerekir; bu yüzden şimdilik yalnızca iş emri uçlarında var.
+
+## K-15: Simülatör API üzerinden yazar
+
+**Alternatif:** Simülatörün doğrudan veritabanına yazması.
+
+**Karar:** Simülatör, demo hesaplarla giriş yapıp gerçek API'yi kullanır. Böylece doğrulama, yetki, tekilleştirme ve SPC kuralları gerçek akışta sürekli çalışır; simülatör aynı zamanda sürekli çalışan bir uçtan uca testtir.
+
+**Bedeli:** Simülatör API'ye bağımlıdır, backend sağlıklı olmadan başlamaz (compose `depends_on` ile çözülür).

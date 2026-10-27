@@ -1,7 +1,6 @@
 # Test ve Doğrulama Kılavuzu
 
 Bu dosya, sistemi nasıl çalıştıracağınızı ve her özelliği nasıl deneyeceğinizi anlatır.
-Yapılmayan kimlikler de açıkça listelenmiştir.
 
 ## 1. Sistemi başlatma
 
@@ -11,11 +10,12 @@ docker compose up --build -d --wait
 ```
 
 - Arayüz: http://localhost:3000
-- API: http://localhost:8080 (sağlık: `/health`, metrikler: `/metrics`)
+- API: http://localhost:8080 (`/health`, `/metrics`, `/openapi.yaml`)
+- Dört servis: `db`, `backend`, `frontend`, `simulator`. `docker compose ps` dördünü de `(healthy)` göstermelidir.
 
 ## 2. Demo hesaplar
 
-Tüm hesapların parolası aynıdır: `Demo!2026Parola` (`.env` içindeki `DEMO_PASSWORD`).
+Tüm hesapların parolası: `Demo!2026Parola` (`.env` içindeki `DEMO_PASSWORD`).
 
 | Rol | E-posta |
 |---|---|
@@ -28,13 +28,11 @@ Tüm hesapların parolası aynıdır: `Demo!2026Parola` (`.env` içindeki `DEMO_
 
 ## 3. Tek komutla doğrulama
 
-Sistem ayaktayken (Windows PowerShell, proje kök klasöründe):
-
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
 ```
 
-İlk çalıştırmada soy ağacı verisi yoksa 1 milyon partiyi yükler; toplam süre birkaç dakikadır. Her kimlik için sonuç tablosu basar; `FAIL` varsa çıkış kodu sıfırdan farklıdır. Makefile karşılığı `make verify`'dır (Windows'ta denenmedi).
+İlk çalıştırmada soy ağacı verisi yoksa 1 milyon partiyi yükler; toplam süre birkaç dakikadır. `FAIL` varsa çıkış kodu sıfırdan farklıdır. Makefile karşılığı `make verify`'dır (Windows'ta denenmedi).
 
 | Değer | Anlamı |
 |---|---|
@@ -43,29 +41,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
 | PARTIAL | Kısmen yapıldı, eksik kısım nota yazılıdır |
 | NOT-DONE | Yapılmadı |
 
-Son alınan sonuç:
-
-```
-HEALTH   PASS      GET /health returns 200 with database ok
-AUTH-1   PASS      wrong password and unknown e-mail both return 401
-AUTH-2   PASS      valid login 200, missing or invalid token 401
-AUTH-3   PASS      operator creating a chart is rejected with 403
-T-1      PASS      SPC rule engine, scripts/demo-spc.ps1 (12 checks)
-T-4      PASS      work order state machine and stock race, scripts/demo-stock-race.ps1 (26 checks)
-F-1      PASS      work orders and BOM through the API (same script as T-4)
-F-3      PARTIAL   measurement entry works through SPC charts; no separate quality form definition
-F-4      PASS      control charts and alarms through API and web UI (same script as T-1)
-T-5      NOT-DONE  high-volume sensor ingestion is not implemented
-AUDIT    PASS      audit log has records with acting user; operator gets 403, manager reads
-T-3      PASS      1M lots: backward 27 ms (6 raw lots), forward 26 ms (45 lots), operator 403
-F-7      PASS      recall report RAW-050000: 36 serials, 36 shipments, 29 ms
-F-5      PASS      NCR: maintenance 403, operator opens 201, early close 409, close without root cause 400, quality closes 200
-T-2      PASS      OEE recomputed from events; late breakdown updates past shift and is split at 14:00
-F-2      PASS      counters, scrap, rework (T-4) and line counters with planned/unplanned downtime reasons (T-2)
-F-6      PARTIAL   OEE by line, shift and day through the API; no UI dashboard
-
-PASS=14  PARTIAL=2  NOT-DONE=1  FAIL=0
-```
+Son alınan sonuç: `PASS=18 PARTIAL=0 NOT-DONE=0 FAIL=0` (HEALTH, AUTH-1/2/3, AUDIT, SIM, T-1 ile T-5, F-1 ile F-7).
 
 ## 4. Verileri sıfırlama
 
@@ -73,39 +49,37 @@ PASS=14  PARTIAL=2  NOT-DONE=1  FAIL=0
 powershell -ExecutionPolicy Bypass -File .\scripts\reset-demo.ps1
 ```
 
-**Dikkat:** Veritabanındaki tüm veriyi siler. Demo hesaplar sistem açılırken yeniden eklenir. Sıfırlamadan sonra `verify` aynı sonucu verir (soy ağacı verisini yeniden yükler).
+**Dikkat:** Veritabanındaki tüm veriyi siler. Demo hesaplar backend açılırken, simülatör grafiği ve hattı simülatör açılırken yeniden oluşur. Sıfırlamadan sonra `verify` aynı sonucu verir.
 
 ## 5. Kimlik tablosu: nasıl denenir, beklenen sonuç
 
-| Kimlik | Durum | Nasıl denenir | Beklenen sonuç |
-|---|---|---|---|
-| HEALTH | Tamam | `GET /health` | `{"status":"ok","database":"ok"}` |
-| AUTH-1 | Tamam | Yanlış parola ve kayıtsız e-posta ile `POST /auth/login` | İkisi de 401, aynı mesaj |
-| AUTH-2 | Tamam | Token olmadan ve bozuk token ile `GET /me` | 401 |
-| AUTH-3 | Tamam | Operatör token'ı ile `POST /charts` | 403 |
-| AUDIT | Tamam | Müdürle `GET /audit-log`, operatörle aynı istek | Müdür kayıtları görür (kullanıcı kimliğiyle), operatör 403 |
-| F-1 | Tamam | `scripts/demo-stock-race.ps1` | `ALL CHECKS PASSED` |
-| F-2 | Tamam | `scripts/demo-stock-race.ps1` ve `scripts/demo-oee.ps1` | İş emri sayaçları tutarlı; duruş nedenleri planlı/plansız ayrılır |
-| F-3 | Kısmen | SPC grafiğine ölçüm girişi (API ve arayüz) | **Ayrı kalite formu tanımı yok** |
-| F-4 | Tamam | `scripts/demo-spc.ps1` ve arayüz (bölüm 7) | 12 PASS |
-| F-5 | Tamam | `verify.ps1` içindeki NCR adımları | Bakım 403, erken kapanış 409, kök nedensiz 400, kalite kapatır 200 |
-| F-6 | Kısmen | `GET /lines/{code}/oee?date=...` | Vardiya ve gün değerleri; **arayüz panosu yok** |
-| F-7 | Tamam | `GET /traceability/lots/RAW-050000/recall` (kalite) | 36 seri, 36 sevkiyat |
-| T-1 | Tamam | `scripts/demo-spc.ps1`, `go test ./internal/spc/ -v` | 12 PASS |
-| T-2 | Tamam | `scripts/demo-oee.ps1`, `go test ./internal/oee/ -v` | 16 PASS; geç arıza A'ya 60, B'ye 30 dk düşer |
-| T-3 | Tamam | `verify.ps1` (soy ağacı adımları), `scripts/measure-genealogy.sql` | 1M partide 1 sn'nin çok altında |
-| T-4 | Tamam | `scripts/demo-stock-race.ps1` | `race: sent=30 ok=20 insufficient_stock=10 other=0` |
-| T-5 | Yapılmadı | | |
+| Kimlik | Nasıl denenir | Beklenen sonuç |
+|---|---|---|
+| HEALTH | `GET /health` | `{"status":"ok","database":"ok"}` |
+| AUTH-1 | Yanlış parola ve kayıtsız e-posta ile giriş | İkisi de 401, aynı mesaj |
+| AUTH-2 | Token olmadan ve bozuk token ile `GET /me`; refresh token ile `POST /auth/refresh` | 401; yenileme 200, access token ile yenileme 401 |
+| AUTH-3 | Operatörle `POST /charts` | 403 |
+| AUDIT | Müdürle ve operatörle `GET /audit-log` | Müdür kayıtları kullanıcı kimliğiyle görür, operatör 403 |
+| SIM | Arayüzde `SIM-SPC-42` grafiği | Noktalar 5 sn'de bir artar |
+| F-1, T-4 | `scripts/demo-stock-race.ps1` | 26 PASS, `race: sent=30 ok=20 insufficient_stock=10 other=0` |
+| F-2, T-2 | `scripts/demo-oee.ps1`, `go test ./internal/oee/ -v` | 17 PASS; geç arıza A'ya 60, B'ye 30 dk düşer; tekrar gelen sayaç sayılmaz |
+| F-3 | `verify.ps1` F-3 adımları; arayüzde Kalite formları | Tolerans dışı değer işaretlenir, değer SPC'ye gider, süresi geçmiş kalibrasyon 409 |
+| F-4, T-1 | `scripts/demo-spc.ps1`, `go test ./internal/spc/ -v` | 12 PASS |
+| F-5 | `verify.ps1` NCR adımları; arayüzde Uygunsuzluklar | Bakım 403, erken kapanış 409, kök nedensiz 400, kalite kapatır 200 |
+| F-6 | Arayüzde OEE panosu | `SIM-HAT-42` için A/B/C ve gün kartları, 10 sn'de bir yenilenir |
+| F-7, T-3 | `GET /traceability/lots/RAW-050000/recall` (kalite) | 36 seri, 36 sevkiyat, 1 sn'nin çok altında |
+| T-5 | `cd backend; go run ./cmd/sensorload` | Hata %0, p95 yaklaşık 40-50 ms |
 
-### Kanıt komutları (zorlu görevler)
+### Kanıt komutları
 
 ```powershell
+# Birim testleri ve kapsama
+cd backend; go test ./... -cover; cd ..
+
 # T-1 SPC
-cd backend; go test ./internal/spc/ -v; cd ..
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-spc.ps1
 
 # T-2 OEE ve geç gelen olaylar
-cd backend; go test ./internal/oee/ -v; cd ..
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-oee.ps1
 
 # T-3 Soy ağacı (1 milyon parti)
@@ -113,55 +87,38 @@ Get-Content .\scripts\seed-genealogy.sql | docker compose exec -T db psql -U hat
 Get-Content .\scripts\measure-genealogy.sql | docker compose exec -T db psql -U hatkontrol -d hatkontrol
 
 # T-4 İş emri ve stok yarışı
-cd backend; go test ./internal/workorder/ -v; cd ..
 powershell -ExecutionPolicy Bypass -File .\scripts\demo-stock-race.ps1
 
-# İndeks ölçümü (README, Doğrulama Soruları 3)
+# T-5 Yük testi (60 sn) ve arşivleme
+cd backend; go run ./cmd/sensorload; cd ..
+Get-Content .\scripts\demo-sensor-archive.sql | docker compose exec -T db psql -U hatkontrol -d hatkontrol
+
+# İndeks ölçümü (README, soru 3)
 Get-Content .\scripts\measure-indexes.sql | docker compose exec -T db psql -U hatkontrol -d hatkontrol
 
 # Kaos: veritabanı kesintisi ve toparlanma
 powershell -ExecutionPolicy Bypass -File .\scripts\chaos.ps1
 ```
 
-Tüm backend testleri ve paket bazında kapsama:
+## 6. Elle API denemesi
+
+**VS Code REST Client:** `requests.http` dosyasını açın, isteklerin üstündeki **Send Request** bağlantısına tıklayın. Önce "GIRIS" bölümündeki altı giriş isteğini gönderin; sonraki istekler onların token'larını kullanır. Malzeme, ürün ve iş emri istekleri sırayla gönderilmelidir (her biri bir öncekinin kimliğini kullanır). İş emri oluşturma isteğini iki kez gönderince aynı kimlik ve `Idempotent-Replayed: true` döner.
+
+**PowerShell:**
 
 ```powershell
-cd backend
-go test ./... -cover
-```
-
-## 6. Elle API denemesi (PowerShell)
-
-```powershell
-$body = @{ email = "mudur@hatkontrol.test"; password = "Demo!2026Parola" } | ConvertTo-Json
-$login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType "application/json" -Body $body
+$login = Invoke-RestMethod -Method Post -Uri http://localhost:8080/auth/login -ContentType "application/json" -Body '{"email":"mudur@hatkontrol.test","password":"Demo!2026Parola"}'
 $headers = @{ Authorization = "Bearer $($login.access_token)" }
-
 Invoke-RestMethod -Uri "http://localhost:8080/work-orders?limit=5" -Headers $headers
-Invoke-RestMethod -Uri "http://localhost:8080/ncrs?status=open" -Headers $headers
-Invoke-RestMethod -Uri http://localhost:8080/lines -Headers $headers
-Invoke-RestMethod -Uri "http://localhost:8080/traceability/lots/RAW-050000/recall" -Headers $headers | ConvertTo-Json -Depth 4
-Invoke-RestMethod -Uri "http://localhost:8080/audit-log?limit=5" -Headers $headers | ConvertTo-Json -Depth 5
+Invoke-RestMethod -Uri "http://localhost:8080/lines/SIM-HAT-42/oee?date=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-dd'))" -Headers $headers | ConvertTo-Json -Depth 4
 ```
-
-OEE raporu için önce `scripts/demo-oee.ps1` bir hat oluşturur (`OEE-<zaman>`); `GET /lines` ile kodunu alıp `GET /lines/<kod>/oee?date=2026-10-20` çağrılabilir.
-
-`requests.http` (VS Code REST Client) dosyası giriş, SPC, katalog ve iş emri akışını içerir; **ben çalıştırıp denemedim** ve NCR, OEE, izlenebilirlik uçları içinde yok.
 
 ## 7. Arayüzde elle denenecek senaryolar
 
-http://localhost:3000 adresinde:
+http://localhost:3000 (güncellemelerden sonra `Ctrl+F5`). Üstteki menü: SPC grafikleri, İş emirleri, OEE panosu, Kalite formları, Uygunsuzluklar, İzlenebilirlik.
 
-1. **Giriş hatası:** `operator@hatkontrol.test` ve yanlış parola. Kırmızı hata mesajı çıkmalı.
-2. **Giriş:** Parola `Demo!2026Parola`. Sağ üstte `Demo Operatör (Operatör)` görünmeli. Grafik yoksa "Henüz kontrol grafiği yok." yazar.
-3. **Grafik oluşturma:** Arayüzde form yoktur; `scripts/demo-spc.ps1` bir grafik oluşturur. Sonra sayfayı yenileyip grafiğe tıklayın.
-4. **Grafik ekranı:** Noktalar, kırmızı kesikli UCL/LCL ve merkez çizgisi; alarm veren noktalar kırmızı ve büyük.
-5. **Normal ölçüm:** `10` girin, yeşil "Ölçüm #... eklendi." mesajı.
-6. **Alarm:** `20` girin, kırmızı "1 alarm üretildi." mesajı ve alarm listesine yeni satır.
-7. **Geçersiz giriş:** `abc` girin, "Geçerli bir sayı girin." yazmalı.
-8. **Rol görünümü:** Bakım hesabıyla ölçüm formu görünmez; kalite hesabıyla form ve "Limitleri yeniden hesapla" butonu görünür.
-9. **Sunucu tarafı yetki:** Bakım token'ı ile `POST /charts/1/measurements` 403 döner.
-10. **Hata durumu:** `docker compose stop backend`, sayfayı yenileyin, hata mesajı görünmeli; sonra `docker compose start backend`.
-11. **Dar ekran:** F12, telefon simgesi; grafik yatay kaydırılabilir, sayfa taşmamalı.
-
-Arayüzde **iş emri, katalog, OEE, NCR ve izlenebilirlik ekranları yoktur**; bunlar yalnızca API üzerinden denenir.
+1. **Giriş:** yanlış parola ile kırmızı hata; doğru parola ile sağ üstte ad ve rol.
+2. **SPC (canlı):** `SIM-SPC-42` grafiğini açın. Noktalar 5 sn'de bir artar; yaklaşık 61. noktadan sonra trend başlar ve kırmızı alarm noktaları çıkar.
+3. **Ölçüm girişi:** operatörle bir grafiğe `10` girin (yeşil mesaj), `abc` girin ("Geçerli bir sayı girin.").
+4. **Rol görünümü:** bakım hesabıyla ölçüm formu görünmez; sunucu da 403 döner.
+5. **İş emirleri:** planlama ile yeni iş emri oluşturun ve serbest bırakın; operatörle
