@@ -26,6 +26,20 @@ const RULE_LABELS = {
 const MEASURE_ROLES = ["operator", "hat_sefi", "kalite_muhendisi"];
 const RECOMPUTE_ROLES = ["kalite_muhendisi"];
 
+const VIEWS = [
+  "login-view", "app-view", "detail-view",
+  "work-orders-view", "oee-view", "quality-view", "ncr-view", "trace-view",
+];
+
+// Ek ekranlar modules.js içinde tanımlıdır; adları burada eşlenir.
+const MODULE_ROUTES = {
+  "#/work-orders": "showWorkOrders",
+  "#/oee": "showOEE",
+  "#/quality": "showQuality",
+  "#/ncrs": "showNCRs",
+  "#/trace": "showTrace",
+};
+
 const BASELINE_SIZE = 25;
 const SESSION_KEY = "hatkontrol.session";
 const SVG_NS = "http://www.w3.org/2000/svg";
@@ -34,14 +48,6 @@ const session = { token: null, user: null };
 let currentDetailId = null;
 let currentChart = null;
 let detailTimer = null;
-
-// Grafik ekranı açıkken 5 saniyede bir yenilenir; simülatörün verisi canlı görünür.
-function stopDetailRefresh() {
-  if (detailTimer) {
-    clearInterval(detailTimer);
-    detailTimer = null;
-  }
-}
 
 const $ = (id) => document.getElementById(id);
 
@@ -92,6 +98,23 @@ async function api(path, { method = "GET", body } = {}) {
   return data;
 }
 
+// --- Otomatik yenileme ---
+
+// Grafik ekranı açıkken 5 saniyede bir yenilenir; simülatörün verisi canlı görünür.
+function stopDetailRefresh() {
+  if (detailTimer) {
+    clearInterval(detailTimer);
+    detailTimer = null;
+  }
+}
+
+function stopAllRefresh() {
+  stopDetailRefresh();
+  if (typeof stopModuleRefresh === "function") {
+    stopModuleRefresh();
+  }
+}
+
 // --- Oturum ---
 
 function saveSession(token, user) {
@@ -123,7 +146,7 @@ function loadSession() {
 }
 
 function endSession(message) {
-    stopDetailRefresh()
+  stopAllRefresh();
   session.token = null;
   session.user = null;
   currentDetailId = null;
@@ -139,10 +162,22 @@ function endSession(message) {
 // --- Ekran yönetimi ---
 
 function setViews(active) {
-  for (const id of ["login-view", "app-view", "detail-view"]) {
+  for (const id of VIEWS) {
     $(id).hidden = id !== active;
   }
-  $("session-info").hidden = active === "login-view";
+  const loggedOut = active === "login-view";
+  $("session-info").hidden = loggedOut;
+  $("main-nav").hidden = loggedOut;
+  for (const link of document.querySelectorAll("#main-nav a")) {
+    const current = link.dataset.view === active ||
+      (active === "detail-view" && link.dataset.view === "app-view");
+    link.classList.toggle("active", current);
+    if (current) {
+      link.setAttribute("aria-current", "page");
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  }
 }
 
 function setMessage(id, text, kind) {
@@ -171,18 +206,24 @@ function route() {
   if (!session.token) {
     return;
   }
+  stopAllRefresh();
+
   const match = /^#\/charts\/(\d+)$/.exec(location.hash);
   if (match) {
     showDetail(Number(match[1]));
-  } else {
-    showList();
+    return;
   }
+  const handler = window[MODULE_ROUTES[location.hash]];
+  if (typeof handler === "function") {
+    handler();
+    return;
+  }
+  showList();
 }
 
 // --- Grafik listesi ---
 
 function showList() {
-    stopDetailRefresh();
   currentDetailId = null;
   currentChart = null;
   setViews("app-view");
@@ -248,7 +289,8 @@ function showDetail(id) {
   $("detail-content").hidden = true;
   setMessage("measure-message", "");
   loadDetail(id, false);
-    stopDetailRefresh();
+
+  stopDetailRefresh();
   detailTimer = setInterval(() => {
     if (currentDetailId === id && session.token && !document.hidden) {
       loadDetail(id, true);
@@ -568,8 +610,11 @@ $("logout-button").addEventListener("click", () => endSession(""));
 $("refresh-button").addEventListener("click", loadCharts);
 window.addEventListener("hashchange", route);
 
-if (loadSession()) {
-  enterApp();
-} else {
-  showLogin("");
-}
+// modules.js de yüklendikten sonra başla.
+window.addEventListener("DOMContentLoaded", () => {
+  if (loadSession()) {
+    enterApp();
+  } else {
+    showLogin("");
+  }
+});

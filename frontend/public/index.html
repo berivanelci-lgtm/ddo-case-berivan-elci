@@ -15,6 +15,15 @@
     </div>
   </header>
 
+  <nav id="main-nav" hidden>
+    <a href="#/" data-view="app-view">SPC grafikleri</a>
+    <a href="#/work-orders" data-view="work-orders-view">İş emirleri</a>
+    <a href="#/oee" data-view="oee-view">OEE panosu</a>
+    <a href="#/quality" data-view="quality-view">Kalite formları</a>
+    <a href="#/ncrs" data-view="ncr-view">Uygunsuzluklar</a>
+    <a href="#/trace" data-view="trace-view">İzlenebilirlik</a>
+  </nav>
+
   <main>
     <noscript>Bu uygulama JavaScript gerektirir.</noscript>
 
@@ -69,8 +78,119 @@
         <ul id="alarms-list" class="cards"></ul>
       </div>
     </section>
+
+    <section id="work-orders-view" hidden>
+      <div class="section-head">
+        <h2>İş emirleri</h2>
+        <button id="wo-refresh" type="button" class="secondary">Yenile</button>
+      </div>
+      <form id="wo-create" class="box" hidden>
+        <h3>Yeni iş emri</h3>
+        <label for="wo-product">Ürün</label>
+        <select id="wo-product" required></select>
+        <label for="wo-qty">Planlanan adet</label>
+        <input id="wo-qty" type="number" min="1" step="1" required>
+        <button type="submit">Oluştur</button>
+      </form>
+      <p id="wo-message" role="status" hidden></p>
+      <p id="wo-empty" class="muted" hidden>Henüz iş emri yok.</p>
+      <ul id="wo-list" class="cards"></ul>
+    </section>
+
+    <section id="oee-view" hidden>
+      <h2>OEE panosu</h2>
+      <div class="filters">
+        <div>
+          <label for="oee-line">Hat</label>
+          <select id="oee-line"></select>
+        </div>
+        <div>
+          <label for="oee-date">Gün (UTC)</label>
+          <input id="oee-date" type="date">
+        </div>
+      </div>
+      <p id="oee-message" role="status" hidden></p>
+      <div id="oee-cards" class="oee-grid"></div>
+      <p id="oee-updated" class="muted"></p>
+    </section>
+
+    <section id="quality-view" hidden>
+      <h2>Kalite ölçüm formları</h2>
+      <p id="qf-empty" class="muted" hidden>Henüz kalite formu yok.</p>
+      <label for="qf-select">Form</label>
+      <select id="qf-select"></select>
+      <p id="qf-message" role="status" hidden></p>
+
+      <form id="qf-entry" class="box" hidden>
+        <p id="qf-info" class="muted"></p>
+        <div id="qf-items"></div>
+        <button id="qf-submit" type="submit">Ölçümleri kaydet</button>
+      </form>
+      <ul id="qf-result" class="cards"></ul>
+
+      <h3>Son muayeneler</h3>
+      <ul id="qf-history" class="cards"></ul>
+
+      <form id="qf-define" class="box" hidden>
+        <h3>Yeni form tanımla</h3>
+        <label for="qf-def-code">Kod</label>
+        <input id="qf-def-code" type="text" required>
+        <label for="qf-def-name">Ad</label>
+        <input id="qf-def-name" type="text" required>
+        <label for="qf-def-gauge">Ölçüm cihazı</label>
+        <input id="qf-def-gauge" type="text">
+        <label for="qf-def-due">Kalibrasyon bitiş tarihi</label>
+        <input id="qf-def-due" type="date">
+        <label for="qf-def-items">Karakteristikler (her satıra bir tane: ad;birim;nominal;alt;üst;grafik no)</label>
+        <textarea id="qf-def-items" rows="4" required placeholder="Çap;mm;10;9,5;10,5;7&#10;Boy;mm;50;49;51"></textarea>
+        <button type="submit">Formu kaydet</button>
+      </form>
+    </section>
+
+    <section id="ncr-view" hidden>
+      <div class="section-head">
+        <h2>Uygunsuzluklar (NCR)</h2>
+        <select id="ncr-filter" aria-label="Durum filtresi">
+          <option value="">Tümü</option>
+          <option value="open">Açık</option>
+          <option value="investigating">İncelemede</option>
+          <option value="closed">Kapalı</option>
+        </select>
+      </div>
+      <form id="ncr-create" class="box" hidden>
+        <h3>Yeni uygunsuzluk</h3>
+        <label for="ncr-title">Başlık</label>
+        <input id="ncr-title" type="text" required>
+        <label for="ncr-description">Açıklama</label>
+        <input id="ncr-description" type="text">
+        <label for="ncr-severity">Önem</label>
+        <select id="ncr-severity">
+          <option value="minor">Düşük</option>
+          <option value="major" selected>Önemli</option>
+          <option value="critical">Kritik</option>
+        </select>
+        <button type="submit">Aç</button>
+      </form>
+      <p id="ncr-message" role="status" hidden></p>
+      <p id="ncr-empty" class="muted" hidden>Kayıt yok.</p>
+      <ul id="ncr-list" class="cards"></ul>
+    </section>
+
+    <section id="trace-view" hidden>
+      <h2>İzlenebilirlik ve geri çağırma</h2>
+      <label for="trace-code">Parti ya da seri kodu</label>
+      <input id="trace-code" type="text" placeholder="RAW-050000 ya da SN-0300000">
+      <div class="actions">
+        <button id="trace-backward" type="button" class="secondary">Geri izle</button>
+        <button id="trace-forward" type="button" class="secondary">İleri izle</button>
+        <button id="trace-recall" type="button">Geri çağırma raporu</button>
+      </div>
+      <p id="trace-message" role="status" hidden></p>
+      <div id="trace-result"></div>
+    </section>
   </main>
 
   <script src="app.js"></script>
+  <script src="modules.js"></script>
 </body>
 </html>

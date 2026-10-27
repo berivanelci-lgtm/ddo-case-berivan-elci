@@ -745,7 +745,7 @@ paths:
                   inserted: { type: integer }
         "400": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
-          /quality-forms:
+  /quality-forms:
     get:
       tags: [Kalite]
       summary: Kalite ölçüm formları (tüm roller)
@@ -1050,7 +1050,7 @@ components:
         performance: { type: number }
         quality: { type: number }
         oee: { type: number }
-            QualityForm:
+    QualityForm:
       type: object
       properties:
         id: { type: integer }
