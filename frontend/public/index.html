@@ -15,15 +15,15 @@
     </div>
   </header>
 
-  <nav id="main-nav" hidden>
+    <nav id="main-nav" hidden>
     <a href="#/" data-view="app-view">SPC grafikleri</a>
-    <a href="#/work-orders" data-view="work-orders-view">İş emirleri</a>
-    <a href="#/oee" data-view="oee-view">OEE panosu</a>
-    <a href="#/quality" data-view="quality-view">Kalite formları</a>
+    <a href="#/work-orders" data-view="work-orders-view" data-roles="operator hat_sefi kalite_muhendisi uretim_planlama fabrika_muduru">İş emirleri</a>
+    <a href="#/oee" data-view="oee-view" data-roles="operator hat_sefi uretim_planlama bakim fabrika_muduru">OEE panosu</a>
+    <a href="#/quality" data-view="quality-view" data-roles="operator hat_sefi kalite_muhendisi fabrika_muduru">Kalite formları</a>
     <a href="#/ncrs" data-view="ncr-view">Uygunsuzluklar</a>
-    <a href="#/trace" data-view="trace-view">İzlenebilirlik</a>
+    <a href="#/trace" data-view="trace-view" data-roles="kalite_muhendisi uretim_planlama hat_sefi fabrika_muduru">İzlenebilirlik</a>
   </nav>
-
+  
   <main>
     <noscript>Bu uygulama JavaScript gerektirir.</noscript>
 

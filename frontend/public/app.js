@@ -199,9 +199,21 @@ function showLogin(message) {
 function enterApp() {
   const roleLabel = ROLE_LABELS[session.user.role] || session.user.role;
   $("user-name").textContent = session.user.full_name + " (" + roleLabel + ")";
+  for (const link of document.querySelectorAll("#main-nav a")) {
+    link.hidden = !canSee(link);
+  }
   route();
 }
 
+// Menü bağlantısının data-roles listesi yoksa herkes görür. Asıl yetki kontrolü sunucudadır.
+function canSee(link) {
+  const roles = link && link.dataset.roles;
+  return !roles || roles.split(" ").includes(session.user.role);
+}
+
+function navLinkFor(hash) {
+  return [...document.querySelectorAll("#main-nav a")].find((link) => link.getAttribute("href") === hash);
+}
 function route() {
   if (!session.token) {
     return;
@@ -214,7 +226,7 @@ function route() {
     return;
   }
   const handler = window[MODULE_ROUTES[location.hash]];
-  if (typeof handler === "function") {
+    if (typeof handler === "function" && canSee(navLinkFor(location.hash))) {
     handler();
     return;
   }

@@ -89,16 +89,24 @@ function toNumber(text) {
   return clean === "" ? NaN : Number(clean);
 }
 
-async function guarded(messageId, fn) {
+// guarded, isteği "Yükleniyor..." durumuyla başlatır, hata olursa mesajı gösterir.
+// quiet true ise (otomatik yenileme) yükleniyor yazısı gösterilmez, ekran titremez.
+async function guarded(messageId, fn, quiet) {
+  const loadingText = "Yükleniyor...";
+  if (!quiet) {
+    setMessage(messageId, loadingText, "muted");
+  }
   try {
     await fn();
+    if ($(messageId).textContent === loadingText) {
+      setMessage(messageId, "");
+    }
   } catch (error) {
     if (session.token) {
       setMessage(messageId, error.message, "error");
     }
   }
 }
-
 // --- İş emirleri ---
 
 async function showWorkOrders() {
@@ -224,6 +232,7 @@ async function showOEE() {
   if (!$("oee-date").value) {
     $("oee-date").value = new Date().toISOString().slice(0, 10);
   }
+    const quiet = $("oee-cards").childElementCount > 0;
   await guarded("oee-message", async () => {
     const lines = await api("/lines");
     const select = $("oee-line");
@@ -243,13 +252,13 @@ async function showOEE() {
   });
   startModuleRefresh(loadOEE, 10000);
 }
-
 async function loadOEE() {
   const code = $("oee-line").value;
   const date = $("oee-date").value;
   if (!code || !date) {
     return;
   }
+  const quiet = $("oee-cards").childElementCount > 0;
   await guarded("oee-message", async () => {
     const report = await api("/lines/" + encodeURIComponent(code) + "/oee?date=" + encodeURIComponent(date));
     const rows = report.shifts.map((shift) => ["Vardiya " + shift.shift, shift]);
@@ -257,9 +266,8 @@ async function loadOEE() {
     $("oee-cards").replaceChildren(...rows.map(([name, result]) => oeeCard(name, result)));
     $("oee-updated").textContent = "Son güncelleme " + new Date().toLocaleTimeString("tr-TR") +
       ". Pano 10 saniyede bir yenilenir. Vardiyalar UTC: A 06-14, B 14-22, C 22-06.";
-  });
+  }, quiet);
 }
-
 function oeeCard(name, result) {
   const row = (label, value) => [h("dt", { text: label }), h("dd", { text: value })];
   return h("div", { class: "oee-card" },
