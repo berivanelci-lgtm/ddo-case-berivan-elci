@@ -1,17 +1,25 @@
-# Windows kullanıcıları make yerine betikleri doğrudan çalıştırabilir:
-#   powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
-.RECIPEPREFIX = >
+# Linux, macOS ve Windows'ta yalnizca make ve Docker ile ayni sekilde calisir.
+# make yoksa: docker compose --profile verify run --rm verify
+.PHONY: up verify reset-demo chaos load
+
+ifeq ($(OS),Windows_NT)
 POWERSHELL ?= powershell
-PHONY: up verify reset-demo chaos load
+else
+POWERSHELL ?= pwsh
+endif
+
 up:
-> docker compose up --build -d
+	docker compose up --build -d --wait
 
 verify:
-> $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/verify.ps1
+	docker compose --profile verify run --rm verify
 
 reset-demo:
-> $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/reset-demo.ps1
+	docker compose --profile verify down -v
+	docker compose up --build -d --wait
+
 chaos:
-> $(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/chaos.ps1
+	$(POWERSHELL) -NoProfile -ExecutionPolicy Bypass -File scripts/chaos.ps1
+
 load:
-> cd backend && go run ./cmd/sensorload
+	cd backend && go run ./cmd/sensorload

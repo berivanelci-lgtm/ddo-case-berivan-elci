@@ -58,7 +58,8 @@ function Invoke-ChildScript {
     $path = Join-Path $scriptDir $Name
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
-    $output = & powershell -NoProfile -ExecutionPolicy Bypass -File $path -BaseUrl $BaseUrl -Password $Password 2>&1 | ForEach-Object { "$_" }
+    $psExe = (Get-Process -Id $PID).Path
+    $output = & $psExe -NoProfile -ExecutionPolicy Bypass -File $path -BaseUrl $BaseUrl -Password $Password 2>&1 | ForEach-Object { "$_" }
     $code = $LASTEXITCODE
     $ErrorActionPreference = $previous
     return @{ Code = $code; Output = @($output) }
@@ -127,8 +128,8 @@ $qualityToken = ""
 if ($qualityLogin.Status -eq 200) { $qualityToken = $qualityLogin.Body.access_token }
 
 $probe = Invoke-Api -Method Get -Path "/traceability/lots/RAW-050000/recall" -Token $qualityToken
-if ($probe.Status -eq 404) {
-    Write-Host "Genealogy data not found, seeding 1,000,000 lots (about a minute)..."
+if ($probe.Status -eq 404 -and (Get-Command docker -ErrorAction SilentlyContinue)) {
+        Write-Host "Genealogy data not found, seeding 1,000,000 lots (about a minute)..."
     Push-Location (Split-Path -Parent $scriptDir)
     $previous = $ErrorActionPreference
     $ErrorActionPreference = "Continue"
@@ -184,7 +185,7 @@ $oeeRun = Invoke-ChildScript "demo-oee.ps1"
 $oeePassed = $oeeRun.Code -eq 0
 Add-Result "T-2" $(if ($oeePassed) { "PASS" } else { "FAIL" }) "OEE recomputed from events; late breakdown updates past shift and is split at 14:00, scripts/demo-oee.ps1"
 Add-Result "F-2" $(if ($oeePassed -and $racePassed) { "PASS" } else { "FAIL" }) "counters, scrap, rework (T-4) and line counters with planned/unplanned downtime reasons (T-2)"
-$frontendUrl = $BaseUrl -replace ":8080", ":3000"
+$frontendUrl = if ($env:FRONTEND_URL) { $env:FRONTEND_URL } else { $BaseUrl -replace ":8080", ":3000" }
 $uiHasOee = $false
 try { $uiHasOee = (Invoke-WebRequest -Uri "$frontendUrl/modules.js" -UseBasicParsing).Content -match "oee-cards" } catch { $uiHasOee = $false }
 Add-Result "F-6" $(if ($oeePassed -and $uiHasOee) { "PASS" } else { "FAIL" }) "OEE by line, shift and day through the API and the web UI dashboard (auto refresh 10 s)"

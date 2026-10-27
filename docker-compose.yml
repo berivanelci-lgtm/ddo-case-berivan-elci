@@ -42,6 +42,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
   simulator:
     build:
       context: ./backend
@@ -61,5 +62,51 @@ services:
       timeout: 3s
       retries: 10
       start_period: 20s
+
+  # --- Aşağıdaki iki servis yalnızca "docker compose --profile verify run --rm verify" ile çalışır ---
+
+  # Soy ağacı verisi (1M parti) yoksa yükler; varsa dokunmaz.
+  genealogy-seed:
+    image: postgres:16-alpine
+    profiles: ["verify"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB}
+    volumes:
+      - ./scripts:/scripts:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        if [ "$$(psql -tAc 'SELECT count(*) FROM lots')" = "0" ]; then
+          echo "Seeding 1,000,000 lots..."
+          psql -q -v ON_ERROR_STOP=1 -f /scripts/seed-genealogy.sql
+        else
+          echo "Genealogy data already present."
+        fi
+
+  # verify.ps1'i PowerShell konteynerinde çalıştırır; makinede yalnızca Docker gerekir.
+  verify:
+    image: mcr.microsoft.com/powershell:latest
+    profiles: ["verify"]
+    depends_on:
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      simulator:
+        condition: service_healthy
+      genealogy-seed:
+        condition: service_completed_successfully
+    environment:
+      FRONTEND_URL: http://frontend:8080
+    volumes:
+      - ./scripts:/scripts:ro
+    entrypoint: ["pwsh", "-NoProfile", "-File", "/scripts/verify.ps1", "-BaseUrl", "http://backend:8080"]
+
 volumes:
   pgdata:
