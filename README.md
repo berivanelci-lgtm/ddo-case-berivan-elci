@@ -28,7 +28,7 @@ Linux ve macOS için `.env` kopyası: `cp .env.example .env`
 - Şema migrasyonları (12 adet) ve demo hesaplar backend açılırken otomatik uygulanır.
 - Konteynerler root olmayan kullanıcıyla çalışır; backend ve simülatör imajları çok aşamalıdır.
 
-**Kurulum süresi:** Önbellekli bir makinede `scripts/reset-demo.ps1` ile sıfırdan kurulum (veritabanı silinir, yeniden oluşturulur) yaklaşık 18 saniyede tamamlandı (simülatör eklenmeden önce ölçüldü). **Boş Docker önbelleğiyle 5 dakika sınırını ölçmedim.**
+**Kurulum süresi:** Boş Docker önbelleğiyle (tüm proje ve temel imajlar ile derleme önbelleği silinmiş, `docker builder prune -af`) `docker compose up --build -d --wait` **97 saniyede** dört servisi `healthy` getirdi: imajların indirilmesi, backend ve simülatörün sıfırdan derlenmesi, migrasyonlar ve seed dahil. Ölçüm kendi makinemde ve ev internet bağlantımla yapıldı; Docker Desktop'ın sanal makinesi açıktı, bu yüzden tamamen yeni bir makinede birkaç saniye daha uzun sürebilir. `make verify` ilk çalıştırmada ayrıca PowerShell imajını (yaklaşık 100 MB) indirir; bu süre ölçüme dahil değildir.
 
 ## Demo hesaplar
 
@@ -377,7 +377,7 @@ GitHub Actions (`.github/workflows/ci.yml`) her push'ta: `gofmt` biçim kontrol�
 
 ## Bilinen sınırlamalar
 
-- Boş Docker önbelleğiyle 5 dakikalık kurulum süresi ölçülmedi. `make` komutu Windows'ta denenmedi; çağırdığı compose komutları denendi. `make chaos` Linux/macOS'ta `pwsh` ister.
+-- `make` komutu Windows'ta denenmedi; çağırdığı compose komutları denendi. `make chaos` Linux/macOS'ta `pwsh` ister.
 - SPC limitlerini yeniden hesaplamak alarm veren noktaları dışlamaz (soru 2). X̄-R grafiğinde kurallar yalnızca X̄ serisine uygulanır.
 - İlk 25 ölçümün hepsi aynıysa sigma sıfırdır, limit hesaplanamaz.
 - Refresh token yenilenince eskisi geçersiz olmaz (iptal listesi yok); süresi dolana kadar kullanılabilir. Arayüz token'ı otomatik yenilemez, 15 dakika sonra yeniden giriş ister.
