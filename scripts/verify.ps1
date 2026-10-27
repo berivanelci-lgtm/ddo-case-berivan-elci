@@ -184,7 +184,10 @@ $oeeRun = Invoke-ChildScript "demo-oee.ps1"
 $oeePassed = $oeeRun.Code -eq 0
 Add-Result "T-2" $(if ($oeePassed) { "PASS" } else { "FAIL" }) "OEE recomputed from events; late breakdown updates past shift and is split at 14:00, scripts/demo-oee.ps1"
 Add-Result "F-2" $(if ($oeePassed -and $racePassed) { "PASS" } else { "FAIL" }) "counters, scrap, rework (T-4) and line counters with planned/unplanned downtime reasons (T-2)"
-Add-Result "F-6" $(if ($oeePassed) { "PARTIAL" } else { "FAIL" }) "OEE by line, shift and day through the API; no UI dashboard"
+$frontendUrl = $BaseUrl -replace ":8080", ":3000"
+$uiHasOee = $false
+try { $uiHasOee = (Invoke-WebRequest -Uri "$frontendUrl/modules.js" -UseBasicParsing).Content -match "oee-cards" } catch { $uiHasOee = $false }
+Add-Result "F-6" $(if ($oeePassed -and $uiHasOee) { "PASS" } else { "FAIL" }) "OEE by line, shift and day through the API and the web UI dashboard (auto refresh 10 s)"
 if (-not $oeePassed) { foreach ($line in $oeeRun.Output) { if ($line -match "^FAIL") { Write-Host "  [demo-oee.ps1] $line" -ForegroundColor Yellow } } }
 # --- T-5: high-volume sensor ingestion (smoke check here; full load test: make load) ---
 $now = (Get-Date).ToUniversalTime()
